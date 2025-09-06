@@ -1,5 +1,7 @@
 # pgdbtemplate
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/andrei-polukhin/pgdbtemplate.svg)](https://pkg.go.dev/github.com/andrei-polukhin/pgdbtemplate)
+
 A high-performance Go library for creating PostgreSQL test databases using template databases for lightning-fast test execution.
 
 ## Features
