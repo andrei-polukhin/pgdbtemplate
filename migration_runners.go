@@ -9,6 +9,14 @@ import (
 	"strings"
 )
 
+// NoOpMigrationRunner is a migration runner that does nothing.
+type NoOpMigrationRunner struct{}
+
+// RunMigrations does nothing and returns nil.
+func (r *NoOpMigrationRunner) RunMigrations(ctx context.Context, conn DatabaseConnection) error {
+	return nil
+}
+
 // FileMigrationRunner runs migrations from filesystem.
 type FileMigrationRunner struct {
 	migrationPaths []string
