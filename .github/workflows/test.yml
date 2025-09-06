@@ -1,4 +1,4 @@
-name: Unit and integration tests for andrei-polukhin/pgdbtemplate
+name: Unit and integration tests for library
 
 on:
   push:

@@ -21,6 +21,7 @@ const (
 
 // TestTemplateManager tests the complete template manager functionality.
 func TestTemplateManager(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -35,8 +36,8 @@ func TestTemplateManager(t *testing.T) {
 	config := pgdbtemplate.Config{
 		ConnectionProvider: connProvider,
 		MigrationRunner:    migrationRunner,
-		TemplateName:       fmt.Sprintf("test_template_%d", time.Now().UnixNano()),
-		TestDBPrefix:       "test_db_",
+		TemplateName:       fmt.Sprintf("test_template_main_%d_%d", time.Now().UnixNano(), os.Getpid()),
+		TestDBPrefix:       fmt.Sprintf("test_db_main_%d_", time.Now().UnixNano()),
 		AdminDBName:        "postgres",
 	}
 
@@ -89,16 +90,20 @@ func TestTemplateManager(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
 
-	// Verify only admin database remains.
+	// Verify system databases still exist and our test databases are gone.
 	databases := listDatabases(ctx, c, connProvider)
-	c.Assert(len(databases), qt.Equals, 3) // postgres, template0, template1.
 	c.Assert(contains(databases, "postgres"), qt.IsTrue)
 	c.Assert(contains(databases, "template0"), qt.IsTrue)
 	c.Assert(contains(databases, "template1"), qt.IsTrue)
+	// Verify our specific test databases are gone
+	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
+	c.Assert(databaseExists(ctx, connProvider, testDBName1), qt.IsFalse)
+	c.Assert(databaseExists(ctx, connProvider, testDBName2), qt.IsFalse)
 }
 
 // TestTemplateManagerConcurrentAccess tests concurrent usage.
 func TestTemplateManagerConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -109,8 +114,8 @@ func TestTemplateManagerConcurrentAccess(t *testing.T) {
 	config := pgdbtemplate.Config{
 		ConnectionProvider: connProvider,
 		MigrationRunner:    migrationRunner,
-		TemplateName:       fmt.Sprintf("concurrent_template_%d", time.Now().UnixNano()),
-		TestDBPrefix:       "concurrent_test_",
+		TemplateName:       fmt.Sprintf("concurrent_template_%d_%d", time.Now().UnixNano(), os.Getpid()),
+		TestDBPrefix:       fmt.Sprintf("concurrent_test_%d_", time.Now().UnixNano()),
 	}
 
 	tm, err := pgdbtemplate.NewTemplateManager(config)
@@ -191,6 +196,7 @@ func TestTemplateManagerConcurrentAccess(t *testing.T) {
 
 // TestTemplateManagerValidation tests validation logic.
 func TestTemplateManagerValidation(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 
 	tests := []struct {

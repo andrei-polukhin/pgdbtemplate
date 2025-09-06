@@ -11,9 +11,10 @@ import (
 
 // TestStandardConnectionProvider tests the connection provider functionality.
 func TestStandardConnectionProvider(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 
-	c.Run("Connect creates real connection to specified database", func(c *qt.C) {
+	c.Run("Basic connection string generation", func(c *qt.C) {
 		connStringFunc := func(dbName string) string {
 			return "postgres://localhost/" + dbName
 		}

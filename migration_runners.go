@@ -26,8 +26,8 @@ type FileMigrationRunner struct {
 // NewFileMigrationRunner creates a new file-based migration runner.
 //
 // The caller is responsible for ensuring that the paths slice is not modified
-// after being passed to orderingFunc. Upon the nil function provided, an alphabetical
-// sorting will be used.
+// after being passed to orderingFunc. Upon the nil function provided, an
+// alphabetical sorting will be used.
 func NewFileMigrationRunner(paths []string, orderingFunc func([]string) []string) *FileMigrationRunner {
 	if orderingFunc == nil {
 		orderingFunc = AlphabeticalMigrationFilesSorting

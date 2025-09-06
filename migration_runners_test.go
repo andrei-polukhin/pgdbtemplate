@@ -14,6 +14,7 @@ import (
 
 // TestFileMigrationRunner tests the migration runner functionality.
 func TestFileMigrationRunner(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 	ctx := context.Background()
 
@@ -62,6 +63,7 @@ func TestFileMigrationRunner(t *testing.T) {
 
 // TestAlphabeticalMigrationFilesSorting tests the sorting function.
 func TestAlphabeticalMigrationFilesSorting(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 
 	files := []string{

@@ -17,6 +17,7 @@ import (
 // TestCreateTestDatabaseCleanupOnConnectionFailure tests that a test database
 // is dropped if it's created successfully but connection to it fails.
 func TestCreateTestDatabaseCleanupOnConnectionFailure(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 	ctx := context.Background()
 
@@ -66,15 +67,17 @@ func TestCreateTestDatabaseCleanupOnConnectionFailure(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 }
 
-// TestCreateTemplateDatabaseCleanupOnConnectionFailure tests that a template database
-// is dropped if it's created successfully but connection to it fails.
+// TestCreateTemplateDatabaseCleanupOnConnectionFailure tests that a template
+// database is dropped if it's created successfully but connection to it fails.
 func TestCreateTemplateDatabaseCleanupOnConnectionFailure(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 	ctx := context.Background()
 
 	templateName := "test_template_conn_fail"
 
-	// Create a connection provider that fails when connecting to the template database.
+	// Create a connection provider that fails when connecting to the template
+	// database.
 	failingProvider := &templateConnectionFailProvider{
 		adminDBName:  "postgres",
 		templateName: templateName,
@@ -108,9 +111,10 @@ func TestCreateTemplateDatabaseCleanupOnConnectionFailure(t *testing.T) {
 	c.Assert(err, qt.Equals, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed initialization"))
 }
 
-// TestCreateTemplateDatabaseCleanupOnMigrationFailure tests that a template database
-// is dropped if it's created successfully but migration fails.
+// TestCreateTemplateDatabaseCleanupOnMigrationFailure tests that a template
+// database is dropped if it's created successfully but migration fails.
 func TestCreateTemplateDatabaseCleanupOnMigrationFailure(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 	ctx := context.Background()
 
@@ -150,9 +154,11 @@ func TestCreateTemplateDatabaseCleanupOnMigrationFailure(t *testing.T) {
 	c.Assert(err, qt.Equals, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed migration"))
 }
 
-// TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure tests that a template database
-// is dropped if it's created and migrations succeed but marking as template fails.
+// TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure tests that a template
+// database is dropped if it's created and migrations succeed but marking as
+// template fails.
 func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure(t *testing.T) {
+	t.Parallel()
 	c := qt.New(t)
 	ctx := context.Background()
 
@@ -166,7 +172,8 @@ func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure(t *testing.T) {
 	adminConn.ExecContext(ctx, dropQuery) // Ignore errors.
 	adminConn.Close()
 
-	// Create a connection provider that fails when executing ALTER DATABASE ... WITH is_template TRUE.
+	// Create a connection provider that fails when executing ALTER DATABASE
+	// ... WITH is_template TRUE.
 	failingProvider := &markTemplateFailProvider{
 		adminDBName: "postgres",
 	}
@@ -248,9 +255,8 @@ func (r *testRealConnectionProvider) GetConnectionString(databaseName string) st
 	return r.connStringFunc(databaseName)
 }
 
-// Mock connection providers for testing failure scenarios
-
-// testDatabaseConnectionFailProvider fails when connecting to databases matching failPattern.
+// testDatabaseConnectionFailProvider fails when connecting to databases
+// matching failPattern.
 type testDatabaseConnectionFailProvider struct {
 	adminDBName  string
 	templateName string
@@ -276,7 +282,8 @@ func (p *testDatabaseConnectionFailProvider) GetConnectionString(databaseName st
 	return createRealConnectionProvider().GetConnectionString(databaseName)
 }
 
-// templateConnectionFailProvider fails when connecting to a specific template database.
+// templateConnectionFailProvider fails when connecting to a specific
+// template database.
 type templateConnectionFailProvider struct {
 	adminDBName  string
 	templateName string
@@ -295,7 +302,8 @@ func (p *templateConnectionFailProvider) GetConnectionString(databaseName string
 	return createRealConnectionProvider().GetConnectionString(databaseName)
 }
 
-// markTemplateFailProvider fails when executing ALTER DATABASE ... WITH is_template TRUE.
+// markTemplateFailProvider fails when executing
+// ALTER DATABASE ... WITH is_template TRUE.
 type markTemplateFailProvider struct {
 	adminDBName string
 }
@@ -318,7 +326,8 @@ func (p *markTemplateFailProvider) GetConnectionString(databaseName string) stri
 	return createRealConnectionProvider().GetConnectionString(databaseName)
 }
 
-// markTemplateFailConnection wraps a connection and fails on ALTER DATABASE ... WITH is_template TRUE.
+// markTemplateFailConnection wraps a connection and fails on
+// ALTER DATABASE ... WITH is_template TRUE.
 type markTemplateFailConnection struct {
 	pgdbtemplate.DatabaseConnection
 	queryCount int

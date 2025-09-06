@@ -122,7 +122,9 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 		dbName = testDBName[0]
 	}
 
-	// Connect to admin database for operations.
+	// Connect to admin database for CREATE DATABASE operations.
+	// We cannot use the template database connection because PostgreSQL
+	// doesn't allow creating databases from a template that has active connections.
 	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to connect to admin database: %w", err)
@@ -156,11 +158,15 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 
 // DropTestDatabase drops a test database.
 func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) error {
-	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
+	// Connect to template database for DROP operations.
+	// This is preferred over admin database as it reduces dependency on admin
+	// permissions and the template database connection has the necessary
+	// privileges.
+	templateConn, err := tm.provider.Connect(ctx, tm.templateName)
 	if err != nil {
-		return fmt.Errorf("failed to connect to admin database: %w", err)
+		return fmt.Errorf("failed to connect to template database: %w", err)
 	}
-	defer adminConn.Close()
+	defer templateConn.Close()
 
 	// Terminate active connections to the database.
 	terminateQuery := `
@@ -168,14 +174,14 @@ func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) 
 	   FROM pg_stat_activity 
 	   WHERE datname = $1 AND pid <> pg_backend_pid()
 	`
-	_, err = adminConn.ExecContext(ctx, terminateQuery, dbName)
+	_, err = templateConn.ExecContext(ctx, terminateQuery, dbName)
 	if err != nil {
 		return fmt.Errorf("failed to terminate connections to database %q: %w", dbName, err)
 	}
 
 	// Drop the database.
 	dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
-	if _, err := adminConn.ExecContext(ctx, dropQuery); err != nil {
+	if _, err := templateConn.ExecContext(ctx, dropQuery); err != nil {
 		return fmt.Errorf("failed to drop database %s: %w", dbName, err)
 	}
 
