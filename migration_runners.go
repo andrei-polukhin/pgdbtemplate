@@ -43,10 +43,8 @@ func (r *PgFileMigrationRunner) RunMigrations(ctx context.Context, conn PgDataba
 		allFiles = append(allFiles, files...)
 	}
 
-	// Order files.
-	if r.orderingFunc != nil {
-		allFiles = r.orderingFunc(allFiles)
-	}
+	// Order files (function always set).
+	allFiles = r.orderingFunc(allFiles)
 
 	// Execute each file.
 	for _, file := range allFiles {

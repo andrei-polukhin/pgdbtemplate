@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/frankban/quicktest"
+	qt "github.com/frankban/quicktest"
 	_ "github.com/lib/pq"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
@@ -14,7 +14,7 @@ import (
 
 // TestPgFileMigrationRunner tests the migration runner functionality.
 func TestPgFileMigrationRunner(t *testing.T) {
-	c := quicktest.New(t)
+	c := qt.New(t)
 	ctx := context.Background()
 
 	// Set up real database connection.
@@ -30,39 +30,39 @@ func TestPgFileMigrationRunner(t *testing.T) {
 	migration2 := "INSERT INTO test_users (name) VALUES ('Alice'), ('Bob');"
 
 	err := os.WriteFile(tempDir+"/001_users.sql", []byte(migration1), 0644)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	err = os.WriteFile(tempDir+"/002_data.sql", []byte(migration2), 0644)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	// Test migration runner creation.
 	runner := pgdbtemplate.NewPgFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
-	c.Assert(runner, quicktest.Not(quicktest.IsNil))
+	c.Assert(runner, qt.IsNotNil)
 
 	// Run migrations on real database.
 	err = runner.RunMigrations(ctx, conn)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	// Verify table was created and data inserted.
 	var count int
 	err = db.QueryRow("SELECT COUNT(*) FROM test_users").Scan(&count)
-	c.Assert(err, quicktest.IsNil)
-	c.Assert(count, quicktest.Equals, 2)
+	c.Assert(err, qt.IsNil)
+	c.Assert(count, qt.Equals, 2)
 
 	// Verify data content.
 	var name string
 	err = db.QueryRow("SELECT name FROM test_users ORDER BY id LIMIT 1").Scan(&name)
-	c.Assert(err, quicktest.IsNil)
-	c.Assert(name, quicktest.Equals, "Alice")
+	c.Assert(err, qt.IsNil)
+	c.Assert(name, qt.Equals, "Alice")
 
 	// Clean up.
 	_, err = db.Exec("DROP TABLE test_users")
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 }
 
 // TestAlphabeticalMigrationFilesSorting tests the sorting function.
 func TestAlphabeticalMigrationFilesSorting(t *testing.T) {
-	c := quicktest.New(t)
+	c := qt.New(t)
 
 	files := []string{
 		"/path/003_third.sql",
@@ -78,24 +78,24 @@ func TestAlphabeticalMigrationFilesSorting(t *testing.T) {
 		"/path/003_third.sql",
 	}
 
-	c.Assert(sorted, quicktest.DeepEquals, expected)
+	c.Assert(sorted, qt.DeepEquals, expected)
 
 	// Verify original slice wasn't modified.
-	c.Assert(files[0], quicktest.Equals, "/path/003_third.sql")
+	c.Assert(files[0], qt.Equals, "/path/003_third.sql")
 }
 
 // setupTestDatabase creates a test database connection.
-func setupTestDatabase(c *quicktest.C) *sql.DB {
+func setupTestDatabase(c *qt.C) *sql.DB {
 	connString := os.Getenv("POSTGRES_CONNECTION_STRING")
 	if connString == "" {
 		connString = "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
 	}
 
 	db, err := sql.Open("postgres", connString)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	err = db.Ping()
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	return db
 }

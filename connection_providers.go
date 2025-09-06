@@ -20,6 +20,10 @@ func (c *StandardPgDatabaseConnection) QueryRowContext(ctx context.Context, quer
 	return c.DB.QueryRowContext(ctx, query, args...)
 }
 
+func (c *StandardPgDatabaseConnection) PingContext(ctx context.Context) error {
+	return c.DB.PingContext(ctx)
+}
+
 func (c *StandardPgDatabaseConnection) Close() error {
 	return c.DB.Close()
 }
@@ -51,7 +55,7 @@ func (p *StandardPgConnectionProvider) Connect(ctx context.Context, databaseName
 	return &StandardPgDatabaseConnection{DB: db}, nil
 }
 
-// PgGetConnectionString returns the connection string for a database.
+// GetConnectionString returns the connection string for a database.
 func (p *StandardPgConnectionProvider) GetConnectionString(databaseName string) string {
 	return p.connStringFunc(databaseName)
 }

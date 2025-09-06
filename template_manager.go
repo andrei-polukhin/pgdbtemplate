@@ -19,6 +19,7 @@ const defaultAdminDBName = "postgres"
 type PgDatabaseConnection interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	PingContext(ctx context.Context) error
 	Close() error
 }
 
@@ -191,7 +192,7 @@ func (tm *PgTemplateManager) Cleanup(ctx context.Context) error {
 }
 
 // createTemplateDatabase creates and initializes the template database.
-func (tm *PgTemplateManager) createTemplateDatabase(ctx context.Context) error {
+func (tm *PgTemplateManager) createTemplateDatabase(ctx context.Context) (err error) {
 	// Connect to leader database.
 	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
 	if err != nil {
@@ -217,6 +218,16 @@ func (tm *PgTemplateManager) createTemplateDatabase(ctx context.Context) error {
 	if _, err := adminConn.ExecContext(ctx, createQuery); err != nil {
 		return fmt.Errorf("failed to create template database: %w", err)
 	}
+
+	// Should any further steps fail, ensure we drop the created template database.
+	defer func() {
+		if err == nil {
+			return
+		}
+
+		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(tm.templateName))
+		adminConn.ExecContext(ctx, dropQuery) // Ignore errors.
+	}()
 
 	// Connect to template database and run migrations.
 	templateConn, err := tm.provider.Connect(ctx, tm.templateName)

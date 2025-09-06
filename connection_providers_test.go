@@ -4,16 +4,16 @@ import (
 	"context"
 	"testing"
 
-	"github.com/frankban/quicktest"
+	qt "github.com/frankban/quicktest"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
 )
 
 // TestStandardPgConnectionProvider tests the connection provider functionality.
 func TestStandardPgConnectionProvider(t *testing.T) {
-	c := quicktest.New(t)
+	c := qt.New(t)
 
-	c.Run("Connect creates real connection to specified database", func(c *quicktest.C) {
+	c.Run("Connect creates real connection to specified database", func(c *qt.C) {
 		connStringFunc := func(dbName string) string {
 			return "postgres://localhost/" + dbName
 		}
@@ -23,10 +23,10 @@ func TestStandardPgConnectionProvider(t *testing.T) {
 		// This will fail because we don't have a real database, but we can verify
 		// the connection string generation and that it attempts to connect.
 		_, err := provider.Connect(context.Background(), "testdb")
-		c.Assert(err, quicktest.Not(quicktest.IsNil)) // Should fail - no real database
+		c.Assert(err, qt.IsNotNil)
 	})
 
-	c.Run("GetConnectionString uses provided function", func(c *quicktest.C) {
+	c.Run("GetConnectionString uses provided function", func(c *qt.C) {
 		connStringFunc := func(dbName string) string {
 			return "postgres://localhost/" + dbName + "?sslmode=disable"
 		}
@@ -36,10 +36,10 @@ func TestStandardPgConnectionProvider(t *testing.T) {
 		connString := provider.GetConnectionString("mydb")
 		expected := "postgres://localhost/mydb?sslmode=disable"
 
-		c.Assert(connString, quicktest.Equals, expected)
+		c.Assert(connString, qt.Equals, expected)
 	})
 
-	c.Run("Connect respects context cancellation", func(c *quicktest.C) {
+	c.Run("Connect respects context cancellation", func(c *qt.C) {
 		connStringFunc := func(dbName string) string {
 			return "postgres://nonexistent-host:5432/" + dbName
 		}
@@ -51,6 +51,6 @@ func TestStandardPgConnectionProvider(t *testing.T) {
 		cancel()
 
 		_, err := provider.Connect(ctx, "testdb")
-		c.Assert(err, quicktest.Not(quicktest.IsNil))
+		c.Assert(err, qt.IsNotNil)
 	})
 }

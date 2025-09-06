@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/frankban/quicktest"
+	qt "github.com/frankban/quicktest"
 	_ "github.com/lib/pq"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
@@ -21,7 +21,7 @@ const (
 
 // TestPgTemplateManager tests the complete template manager functionality.
 func TestPgTemplateManager(t *testing.T) {
-	c := quicktest.New(t)
+	c := qt.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -41,65 +41,65 @@ func TestPgTemplateManager(t *testing.T) {
 	}
 
 	tm, err := pgdbtemplate.NewPgTemplateManager(config)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	// Test initialization.
 	err = tm.Initialize(ctx)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	// Verify template database was created.
-	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), quicktest.IsTrue)
+	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsTrue)
 
 	// Test creating test databases.
 	testDB1, testDBName1, err := tm.CreateTestDatabase(ctx)
-	c.Assert(err, quicktest.IsNil)
-	c.Assert(testDB1, quicktest.Not(quicktest.IsNil))
-	c.Assert(strings.HasPrefix(testDBName1, "test_db_"), quicktest.IsTrue)
+	c.Assert(err, qt.IsNil)
+	c.Assert(testDB1, qt.IsNotNil)
+	c.Assert(strings.HasPrefix(testDBName1, "test_db_"), qt.IsTrue)
 
 	// Verify test database was created.
-	c.Assert(databaseExists(ctx, connProvider, testDBName1), quicktest.IsTrue)
+	c.Assert(databaseExists(ctx, connProvider, testDBName1), qt.IsTrue)
 
 	// Test creating another test database.
 	testDB2, testDBName2, err := tm.CreateTestDatabase(ctx, "custom_test_name")
-	c.Assert(err, quicktest.IsNil)
-	c.Assert(testDB2, quicktest.Not(quicktest.IsNil))
-	c.Assert(testDBName2, quicktest.Equals, "custom_test_name")
+	c.Assert(err, qt.IsNil)
+	c.Assert(testDB2, qt.IsNotNil)
+	c.Assert(testDBName2, qt.Equals, "custom_test_name")
 
 	// Verify custom named test database was created.
-	c.Assert(databaseExists(ctx, connProvider, testDBName2), quicktest.IsTrue)
+	c.Assert(databaseExists(ctx, connProvider, testDBName2), qt.IsTrue)
 
 	// Test that migrations were applied to test databases.
-	c.Assert(hasTestTable(ctx, testDB1), quicktest.IsTrue)
-	c.Assert(hasTestTable(ctx, testDB2), quicktest.IsTrue)
+	c.Assert(hasTestTable(ctx, testDB1), qt.IsTrue)
+	c.Assert(hasTestTable(ctx, testDB2), qt.IsTrue)
 
 	// Clean up test databases.
 	testDB1.Close()
 	testDB2.Close()
 
 	err = tm.DropTestDatabase(ctx, testDBName1)
-	c.Assert(err, quicktest.IsNil)
-	c.Assert(databaseExists(ctx, connProvider, testDBName1), quicktest.IsFalse)
+	c.Assert(err, qt.IsNil)
+	c.Assert(databaseExists(ctx, connProvider, testDBName1), qt.IsFalse)
 
 	err = tm.DropTestDatabase(ctx, testDBName2)
-	c.Assert(err, quicktest.IsNil)
-	c.Assert(databaseExists(ctx, connProvider, testDBName2), quicktest.IsFalse)
+	c.Assert(err, qt.IsNil)
+	c.Assert(databaseExists(ctx, connProvider, testDBName2), qt.IsFalse)
 
 	// Clean up template database.
 	err = tm.Cleanup(ctx)
-	c.Assert(err, quicktest.IsNil)
-	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), quicktest.IsFalse)
+	c.Assert(err, qt.IsNil)
+	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
 
 	// Verify only admin database remains.
 	databases := listDatabases(ctx, c, connProvider)
-	c.Assert(len(databases), quicktest.Equals, 3) // postgres, template0, template1
-	c.Assert(contains(databases, "postgres"), quicktest.IsTrue)
-	c.Assert(contains(databases, "template0"), quicktest.IsTrue)
-	c.Assert(contains(databases, "template1"), quicktest.IsTrue)
+	c.Assert(len(databases), qt.Equals, 3) // postgres, template0, template1.
+	c.Assert(contains(databases, "postgres"), qt.IsTrue)
+	c.Assert(contains(databases, "template0"), qt.IsTrue)
+	c.Assert(contains(databases, "template1"), qt.IsTrue)
 }
 
 // TestPgTemplateManagerConcurrentAccess tests concurrent usage.
 func TestPgTemplateManagerConcurrentAccess(t *testing.T) {
-	c := quicktest.New(t)
+	c := qt.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -114,10 +114,10 @@ func TestPgTemplateManagerConcurrentAccess(t *testing.T) {
 	}
 
 	tm, err := pgdbtemplate.NewPgTemplateManager(config)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	err = tm.Initialize(ctx)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	// Create multiple test databases concurrently.
 	const numGoroutines = 5
@@ -149,11 +149,11 @@ func TestPgTemplateManagerConcurrentAccess(t *testing.T) {
 		}
 	}
 
-	c.Assert(len(testDBNames), quicktest.Equals, numGoroutines)
+	c.Assert(len(testDBNames), qt.Equals, numGoroutines)
 
 	// Verify all databases were created.
 	for _, dbName := range testDBNames {
-		c.Assert(databaseExists(ctx, connProvider, dbName), quicktest.IsTrue)
+		c.Assert(databaseExists(ctx, connProvider, dbName), qt.IsTrue)
 	}
 
 	// Clean up concurrently.
@@ -181,17 +181,17 @@ func TestPgTemplateManagerConcurrentAccess(t *testing.T) {
 
 	// Verify all test databases were dropped.
 	for _, dbName := range testDBNames {
-		c.Assert(databaseExists(ctx, connProvider, dbName), quicktest.IsFalse)
+		c.Assert(databaseExists(ctx, connProvider, dbName), qt.IsFalse)
 	}
 
 	// Clean up template.
 	err = tm.Cleanup(ctx)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 }
 
 // TestPgTemplateManagerValidation tests validation logic.
 func TestPgTemplateManagerValidation(t *testing.T) {
-	c := quicktest.New(t)
+	c := qt.New(t)
 
 	tests := []struct {
 		name          string
@@ -206,7 +206,7 @@ func TestPgTemplateManagerValidation(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		c.Run(test.name, func(c *quicktest.C) {
+		c.Run(test.name, func(c *qt.C) {
 			provider := &mockConnectionProvider{connString: test.connString}
 			config := pgdbtemplate.PgConfig{
 				ConnectionProvider: provider,
@@ -215,9 +215,9 @@ func TestPgTemplateManagerValidation(t *testing.T) {
 
 			_, err := pgdbtemplate.NewPgTemplateManager(config)
 			if test.shouldSucceed {
-				c.Assert(err, quicktest.IsNil)
+				c.Assert(err, qt.IsNil)
 			} else {
-				c.Assert(err, quicktest.Not(quicktest.IsNil))
+				c.Assert(err, qt.IsNotNil)
 			}
 		})
 	}
@@ -249,7 +249,7 @@ func setupTestConnectionProvider() pgdbtemplate.PgConnectionProvider {
 	return &realConnectionProvider{connStringFunc: connStringFunc}
 }
 
-func setupTestMigrationRunner(c *quicktest.C) pgdbtemplate.PgMigrationRunner {
+func setupTestMigrationRunner(c *qt.C) pgdbtemplate.PgMigrationRunner {
 	// Create temporary migration files.
 	tempDir := c.TempDir()
 
@@ -269,10 +269,10 @@ INSERT INTO test_table (name) VALUES ('test_data_1'), ('test_data_2');
 	migration2Path := tempDir + "/002_insert_data.sql"
 
 	err := os.WriteFile(migration1Path, []byte(migration1), 0644)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	err = os.WriteFile(migration2Path, []byte(migration2), 0644)
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 
 	return pgdbtemplate.NewPgFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
 }
@@ -299,32 +299,32 @@ func hasTestTable(ctx context.Context, conn pgdbtemplate.PgDatabaseConnection) b
 	return err == nil && exists
 }
 
-func listDatabases(ctx context.Context, c *quicktest.C, provider pgdbtemplate.PgConnectionProvider) []string {
+func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.PgConnectionProvider) []string {
 	adminConn, err := provider.Connect(ctx, "postgres")
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 	defer adminConn.Close()
 
 	rows, err := adminConn.(*pgdbtemplate.StandardPgDatabaseConnection).Query("SELECT datname FROM pg_database WHERE datistemplate = false")
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 	defer rows.Close()
 
 	var databases []string
 	for rows.Next() {
 		var name string
 		err := rows.Scan(&name)
-		c.Assert(err, quicktest.IsNil)
+		c.Assert(err, qt.IsNil)
 		databases = append(databases, name)
 	}
 
 	// Also include template databases for verification.
 	rows2, err := adminConn.(*pgdbtemplate.StandardPgDatabaseConnection).Query("SELECT datname FROM pg_database WHERE datistemplate = true")
-	c.Assert(err, quicktest.IsNil)
+	c.Assert(err, qt.IsNil)
 	defer rows2.Close()
 
 	for rows2.Next() {
 		var name string
 		err := rows2.Scan(&name)
-		c.Assert(err, quicktest.IsNil)
+		c.Assert(err, qt.IsNil)
 		databases = append(databases, name)
 	}
 
