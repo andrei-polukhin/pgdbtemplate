@@ -9,29 +9,29 @@ import (
 	"strings"
 )
 
-// PgFileMigrationRunner runs migrations from filesystem.
-type PgFileMigrationRunner struct {
+// FileMigrationRunner runs migrations from filesystem.
+type FileMigrationRunner struct {
 	migrationPaths []string
 	orderingFunc   func([]string) []string
 }
 
-// NewPgFileMigrationRunner creates a new file-based migration runner.
+// NewFileMigrationRunner creates a new file-based migration runner.
 //
 // The caller is responsible for ensuring that the paths slice is not modified
 // after being passed to orderingFunc. Upon the nil function provided, an alphabetical
 // sorting will be used.
-func NewPgFileMigrationRunner(paths []string, orderingFunc func([]string) []string) *PgFileMigrationRunner {
+func NewFileMigrationRunner(paths []string, orderingFunc func([]string) []string) *FileMigrationRunner {
 	if orderingFunc == nil {
 		orderingFunc = AlphabeticalMigrationFilesSorting
 	}
-	return &PgFileMigrationRunner{
+	return &FileMigrationRunner{
 		migrationPaths: paths,
 		orderingFunc:   orderingFunc,
 	}
 }
 
 // RunMigrations executes all migration files on the connection.
-func (r *PgFileMigrationRunner) RunMigrations(ctx context.Context, conn PgDatabaseConnection) error {
+func (r *FileMigrationRunner) RunMigrations(ctx context.Context, conn DatabaseConnection) error {
 	var allFiles []string
 
 	// Collect all SQL files from all paths.
@@ -55,7 +55,7 @@ func (r *PgFileMigrationRunner) RunMigrations(ctx context.Context, conn PgDataba
 	return nil
 }
 
-func (r *PgFileMigrationRunner) collectSQLFiles(path string) ([]string, error) {
+func (r *FileMigrationRunner) collectSQLFiles(path string) ([]string, error) {
 	var files []string
 
 	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
@@ -71,7 +71,7 @@ func (r *PgFileMigrationRunner) collectSQLFiles(path string) ([]string, error) {
 	return files, err
 }
 
-func (r *PgFileMigrationRunner) executeFile(ctx context.Context, conn PgDatabaseConnection, filePath string) error {
+func (r *FileMigrationRunner) executeFile(ctx context.Context, conn DatabaseConnection, filePath string) error {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return err

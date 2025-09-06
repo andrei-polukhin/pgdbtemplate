@@ -14,33 +14,33 @@ import (
 
 const defaultAdminDBName = "postgres"
 
-// PgDatabaseConnection represents any PostgreSQL database connection that can
+// DatabaseConnection represents any PostgreSQL database connection that can
 // execute SQL.
-type PgDatabaseConnection interface {
+type DatabaseConnection interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	PingContext(ctx context.Context) error
 	Close() error
 }
 
-// PgConnectionProvider creates PostgreSQL database connections.
-type PgConnectionProvider interface {
+// ConnectionProvider creates PostgreSQL database connections.
+type ConnectionProvider interface {
 	// Connect creates a connection to the specified database.
-	Connect(ctx context.Context, databaseName string) (PgDatabaseConnection, error)
+	Connect(ctx context.Context, databaseName string) (DatabaseConnection, error)
 	// GetConnectionString returns connection string for the database.
 	GetConnectionString(databaseName string) string
 }
 
-// PgMigrationRunner executes migrations on a PostgreSQL database connection.
-type PgMigrationRunner interface {
-	RunMigrations(ctx context.Context, conn PgDatabaseConnection) error
+// MigrationRunner executes migrations on a PostgreSQL database connection.
+type MigrationRunner interface {
+	RunMigrations(ctx context.Context, conn DatabaseConnection) error
 }
 
-// PgTemplateManager manages PostgreSQL template databases for fast test database
+// TemplateManager manages PostgreSQL template databases for fast test database
 // creation.
-type PgTemplateManager struct {
-	provider     PgConnectionProvider
-	migrator     PgMigrationRunner
+type TemplateManager struct {
+	provider     ConnectionProvider
+	migrator     MigrationRunner
 	templateName string
 	testPrefix   string
 	adminDBName  string
@@ -48,21 +48,21 @@ type PgTemplateManager struct {
 	initialized  bool
 }
 
-// PgConfig holds configuration for the template manager.
-type PgConfig struct {
-	ConnectionProvider PgConnectionProvider
-	MigrationRunner    PgMigrationRunner
+// Config holds configuration for the template manager.
+type Config struct {
+	ConnectionProvider ConnectionProvider
+	MigrationRunner    MigrationRunner
 	TemplateName       string
 	TestDBPrefix       string
 	AdminDBName        string
 }
 
-// NewPgTemplateManager creates a new template manager and checks for PostgreSQL.
-func NewPgTemplateManager(config PgConfig) (*PgTemplateManager, error) {
+// NewTemplateManager creates a new template manager and checks for PostgreSQL.
+func NewTemplateManager(config Config) (*TemplateManager, error) {
 	// Check that the connection string is for PostgreSQL.
 	connStr := config.ConnectionProvider.GetConnectionString(defaultAdminDBName)
 	if !isPostgresConnectionString(connStr) {
-		return nil, fmt.Errorf("PgTemplateManager requires a PostgreSQL connection string, got: %s", connStr)
+		return nil, fmt.Errorf("TemplateManager requires a PostgreSQL connection string, got: %s", connStr)
 	}
 
 	templateName := config.TemplateName
@@ -80,7 +80,7 @@ func NewPgTemplateManager(config PgConfig) (*PgTemplateManager, error) {
 		adminDBName = defaultAdminDBName
 	}
 
-	return &PgTemplateManager{
+	return &TemplateManager{
 		provider:     config.ConnectionProvider,
 		migrator:     config.MigrationRunner,
 		templateName: templateName,
@@ -95,7 +95,7 @@ func isPostgresConnectionString(connStr string) bool {
 }
 
 // Initialize sets up the template database with all migrations.
-func (tm *PgTemplateManager) Initialize(ctx context.Context) error {
+func (tm *TemplateManager) Initialize(ctx context.Context) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
@@ -112,7 +112,7 @@ func (tm *PgTemplateManager) Initialize(ctx context.Context) error {
 }
 
 // CreateTestDatabase creates a new test database from the template.
-func (tm *PgTemplateManager) CreateTestDatabase(ctx context.Context, testDBName ...string) (PgDatabaseConnection, string, error) {
+func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ...string) (DatabaseConnection, string, error) {
 	if err := tm.Initialize(ctx); err != nil {
 		return nil, "", err
 	}
@@ -146,7 +146,7 @@ func (tm *PgTemplateManager) CreateTestDatabase(ctx context.Context, testDBName 
 }
 
 // DropTestDatabase drops a test database.
-func (tm *PgTemplateManager) DropTestDatabase(ctx context.Context, dbName string) error {
+func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) error {
 	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
 	if err != nil {
 		return fmt.Errorf("failed to connect to admin database: %w", err)
@@ -174,7 +174,7 @@ func (tm *PgTemplateManager) DropTestDatabase(ctx context.Context, dbName string
 }
 
 // Cleanup removes the template database.
-func (tm *PgTemplateManager) Cleanup(ctx context.Context) error {
+func (tm *TemplateManager) Cleanup(ctx context.Context) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
@@ -192,7 +192,7 @@ func (tm *PgTemplateManager) Cleanup(ctx context.Context) error {
 }
 
 // createTemplateDatabase creates and initializes the template database.
-func (tm *PgTemplateManager) createTemplateDatabase(ctx context.Context) (err error) {
+func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err error) {
 	// Connect to leader database.
 	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
 	if err != nil {
@@ -252,7 +252,7 @@ func (tm *PgTemplateManager) createTemplateDatabase(ctx context.Context) (err er
 }
 
 // dropTemplateDatabase removes the template database.
-func (tm *PgTemplateManager) dropTemplateDatabase(ctx context.Context) error {
+func (tm *TemplateManager) dropTemplateDatabase(ctx context.Context) error {
 	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
 	if err != nil {
 		return err

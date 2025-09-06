@@ -9,8 +9,8 @@ import (
 	"github.com/andrei-polukhin/pgdbtemplate"
 )
 
-// TestStandardPgConnectionProvider tests the connection provider functionality.
-func TestStandardPgConnectionProvider(t *testing.T) {
+// TestStandardConnectionProvider tests the connection provider functionality.
+func TestStandardConnectionProvider(t *testing.T) {
 	c := qt.New(t)
 
 	c.Run("Connect creates real connection to specified database", func(c *qt.C) {
@@ -18,7 +18,7 @@ func TestStandardPgConnectionProvider(t *testing.T) {
 			return "postgres://localhost/" + dbName
 		}
 
-		provider := pgdbtemplate.NewStandardPgConnectionProvider(connStringFunc)
+		provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
 
 		// This will fail because we don't have a real database, but we can verify
 		// the connection string generation and that it attempts to connect.
@@ -31,7 +31,7 @@ func TestStandardPgConnectionProvider(t *testing.T) {
 			return "postgres://localhost/" + dbName + "?sslmode=disable"
 		}
 
-		provider := pgdbtemplate.NewStandardPgConnectionProvider(connStringFunc)
+		provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
 
 		connString := provider.GetConnectionString("mydb")
 		expected := "postgres://localhost/mydb?sslmode=disable"
@@ -44,7 +44,7 @@ func TestStandardPgConnectionProvider(t *testing.T) {
 			return "postgres://nonexistent-host:5432/" + dbName
 		}
 
-		provider := pgdbtemplate.NewStandardPgConnectionProvider(connStringFunc)
+		provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
 
 		// Create a context that's already cancelled.
 		ctx, cancel := context.WithCancel(context.Background())

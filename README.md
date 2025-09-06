@@ -36,23 +36,23 @@ func main() {
     connStringFunc := func(dbName string) string {
         return fmt.Sprintf("postgres://user:pass@localhost/%s", dbName)
     }
-    provider := pgdbtemplate.NewStandardPgConnectionProvider(connStringFunc)
+    provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
     
     // Create migration runner.
-    migrationRunner := pgdbtemplate.NewPgFileMigrationRunner(
+    migrationRunner := pgdbtemplate.NewFileMigrationRunner(
         []string{"./migrations"}, 
         pgdbtemplate.AlphabeticalMigrationFilesSorting,
     )
     
     // Create template manager.
-    config := pgdbtemplate.PgConfig{
+    config := pgdbtemplate.Config{
         ConnectionProvider: provider,
         MigrationRunner:    migrationRunner,
         TemplateName:       "my_app_template",
         TestDBPrefix:       "test_",
     }
     
-    tm, err := pgdbtemplate.NewPgTemplateManager(config)
+    tm, err := pgdbtemplate.NewTemplateManager(config)
     if err != nil {
         log.Fatal(err)
     }
@@ -93,7 +93,7 @@ import (
     _ "github.com/lib/pq"
 )
 
-var templateManager *pgdbtemplate.PgTemplateManager
+var templateManager *pgdbtemplate.TemplateManager
 
 func TestMain(m *testing.M) {
     // Setup template manager once.
@@ -114,13 +114,13 @@ func setupTemplateManager() {
     provider := createConnectionProvider(connString)
     
     // Create migration runner.
-    migrationRunner := pgdbtemplate.NewPgFileMigrationRunner(
+    migrationRunner := pgdbtemplate.NewFileMigrationRunner(
         []string{"./testdata/migrations"},
         pgdbtemplate.AlphabeticalMigrationFilesSorting,
     )
     
     // Configure template manager.
-    config := pgdbtemplate.PgConfig{
+    config := pgdbtemplate.Config{
         ConnectionProvider: provider,
         MigrationRunner:    migrationRunner,
         TemplateName:       "myapp_test_template",
@@ -128,7 +128,7 @@ func setupTemplateManager() {
     }
     
     var err error
-    templateManager, err = pgdbtemplate.NewPgTemplateManager(config)
+    templateManager, err = pgdbtemplate.NewTemplateManager(config)
     if err != nil {
         panic(err)
     }
@@ -139,7 +139,7 @@ func setupTemplateManager() {
     }
 }
 
-func createConnectionProvider(baseConnString string) pgdbtemplate.PgConnectionProvider {
+func createConnectionProvider(baseConnString string) pgdbtemplate.ConnectionProvider {
     return &realConnectionProvider{
         connStringFunc: func(dbName string) string {
             return strings.Replace(baseConnString, "/postgres?", "/"+dbName+"?", 1)
@@ -152,7 +152,7 @@ type realConnectionProvider struct {
     connStringFunc func(string) string
 }
 
-func (r *realConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.PgDatabaseConnection, error) {
+func (r *realConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
     connString := r.connStringFunc(databaseName)
     db, err := sql.Open("postgres", connString)
     if err != nil {
@@ -164,7 +164,7 @@ func (r *realConnectionProvider) Connect(ctx context.Context, databaseName strin
         return nil, err
     }
     
-    return &pgdbtemplate.StandardPgDatabaseConnection{DB: db}, nil
+    return &pgdbtemplate.StandardDatabaseConnection{DB: db}, nil
 }
 
 func (r *realConnectionProvider) GetConnectionString(databaseName string) string {
@@ -239,7 +239,7 @@ import (
 
 var (
     pgContainer     *postgres.PostgresContainer
-    templateManager *pgdbtemplate.PgTemplateManager
+    templateManager *pgdbtemplate.TemplateManager
 )
 
 func TestMain(m *testing.M) {
@@ -290,13 +290,13 @@ func setupTemplateManagerWithContainer(ctx context.Context) error {
     }
     
     // Create migration runner.
-    migrationRunner := pgdbtemplate.NewPgFileMigrationRunner(
+    migrationRunner := pgdbtemplate.NewFileMigrationRunner(
         []string{"./testdata/migrations"},
         pgdbtemplate.AlphabeticalMigrationFilesSorting,
     )
     
     // Configure template manager.
-    config := pgdbtemplate.PgConfig{
+    config := pgdbtemplate.Config{
         ConnectionProvider: provider,
         MigrationRunner:    migrationRunner,
         TemplateName:       "testcontainer_template",
@@ -304,7 +304,7 @@ func setupTemplateManagerWithContainer(ctx context.Context) error {
         AdminDBName:        "testdb", // Use the container's default database.
     }
     
-    templateManager, err = pgdbtemplate.NewPgTemplateManager(config)
+    templateManager, err = pgdbtemplate.NewTemplateManager(config)
     if err != nil {
         return err
     }
@@ -318,7 +318,7 @@ type containerConnectionProvider struct {
     baseConnString string
 }
 
-func (c *containerConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.PgDatabaseConnection, error) {
+func (c *containerConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
     connString := c.GetConnectionString(databaseName)
     
     db, err := sql.Open("postgres", connString)
@@ -331,7 +331,7 @@ func (c *containerConnectionProvider) Connect(ctx context.Context, databaseName 
         return nil, err
     }
     
-    return &pgdbtemplate.StandardPgDatabaseConnection{DB: db}, nil
+    return &pgdbtemplate.StandardDatabaseConnection{DB: db}, nil
 }
 
 func (c *containerConnectionProvider) GetConnectionString(databaseName string) string {
@@ -426,7 +426,7 @@ func NewCustomMigrationRunner(upDir, downDir string) *customMigrationRunner {
     }
 }
 
-func (r *customMigrationRunner) RunMigrations(ctx context.Context, conn pgdbtemplate.PgDatabaseConnection) error {
+func (r *customMigrationRunner) RunMigrations(ctx context.Context, conn pgdbtemplate.DatabaseConnection) error {
     // Apply up migrations.
     for _, migration := range r.upMigrations {
         if _, err := conn.ExecContext(ctx, migration); err != nil {
@@ -440,13 +440,13 @@ func (r *customMigrationRunner) RunMigrations(ctx context.Context, conn pgdbtemp
 func setupWithCustomMigrations() {
     customRunner := NewCustomMigrationRunner("./migrations/up", "./migrations/down")
     
-    config := pgdbtemplate.PgConfig{
+    config := pgdbtemplate.Config{
         ConnectionProvider: provider,
         MigrationRunner:    customRunner,
         TemplateName:       "custom_template",
     }
     
-    tm, _ := pgdbtemplate.NewPgTemplateManager(config)
+    tm, _ := pgdbtemplate.NewTemplateManager(config)
     // ...
 }
 ```
@@ -486,7 +486,7 @@ Using template databases provides significant performance improvements:
 
 ## Configuration Options
 
-### PgConfig Fields
+### Config Fields
 
 - `ConnectionProvider`: Interface for creating database connections
 - `MigrationRunner`: Interface for running database migrations  

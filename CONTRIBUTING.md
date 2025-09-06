@@ -55,11 +55,11 @@ go vet ./...
 ### Comment Guidelines
 
 ```go
-// Good: PgDatabaseConnection represents any PostgreSQL database connection.
-type PgDatabaseConnection interface { ... }
+// Good: DatabaseConnection represents any PostgreSQL database connection.
+type DatabaseConnection interface { ... }
 
-// Bad: PgDatabaseConnection represents any PostgreSQL database connection
-type PgDatabaseConnection interface { ... }
+// Bad: DatabaseConnection represents any PostgreSQL database connection
+type DatabaseConnection interface { ... }
 ```
 
 ## Testing
@@ -152,10 +152,10 @@ Bad:
 
 ### Core Components
 
-- **PgTemplateManager**: Main orchestrator for template database management
-- **PgConnectionProvider**: Abstraction for database connections
-- **PgMigrationRunner**: Interface for running database migrations
-- **PgDatabaseConnection**: Wrapper around database/sql connections
+- **TemplateManager**: Main orchestrator for template database management
+- **ConnectionProvider**: Abstraction for database connections
+- **MigrationRunner**: Interface for running database migrations
+- **DatabaseConnection**: Wrapper around database/sql connections
 
 ### Design Principles
 

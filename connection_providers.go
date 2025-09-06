@@ -7,41 +7,41 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// StandardPgDatabaseConnection wraps a standard database/sql connection.
-type StandardPgDatabaseConnection struct {
+// StandardDatabaseConnection wraps a standard database/sql connection.
+type StandardDatabaseConnection struct {
 	*sql.DB
 }
 
-func (c *StandardPgDatabaseConnection) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+func (c *StandardDatabaseConnection) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	return c.DB.ExecContext(ctx, query, args...)
 }
 
-func (c *StandardPgDatabaseConnection) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+func (c *StandardDatabaseConnection) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return c.DB.QueryRowContext(ctx, query, args...)
 }
 
-func (c *StandardPgDatabaseConnection) PingContext(ctx context.Context) error {
+func (c *StandardDatabaseConnection) PingContext(ctx context.Context) error {
 	return c.DB.PingContext(ctx)
 }
 
-func (c *StandardPgDatabaseConnection) Close() error {
+func (c *StandardDatabaseConnection) Close() error {
 	return c.DB.Close()
 }
 
-// StandardPgConnectionProvider provides PostgreSQL connections.
-type StandardPgConnectionProvider struct {
+// StandardConnectionProvider provides PostgreSQL connections.
+type StandardConnectionProvider struct {
 	connStringFunc func(databaseName string) string
 }
 
-// NewStandardPgConnectionProvider creates a new StandardPgConnectionProvider.
-func NewStandardPgConnectionProvider(connStringFunc func(databaseName string) string) *StandardPgConnectionProvider {
-	return &StandardPgConnectionProvider{
+// NewStandardConnectionProvider creates a new StandardConnectionProvider.
+func NewStandardConnectionProvider(connStringFunc func(databaseName string) string) *StandardConnectionProvider {
+	return &StandardConnectionProvider{
 		connStringFunc: connStringFunc,
 	}
 }
 
 // Connect creates a connection to the specified database.
-func (p *StandardPgConnectionProvider) Connect(ctx context.Context, databaseName string) (PgDatabaseConnection, error) {
+func (p *StandardConnectionProvider) Connect(ctx context.Context, databaseName string) (DatabaseConnection, error) {
 	connString := p.connStringFunc(databaseName)
 	db, err := sql.Open("postgres", connString)
 	if err != nil {
@@ -52,10 +52,10 @@ func (p *StandardPgConnectionProvider) Connect(ctx context.Context, databaseName
 		db.Close()
 		return nil, err
 	}
-	return &StandardPgDatabaseConnection{DB: db}, nil
+	return &StandardDatabaseConnection{DB: db}, nil
 }
 
 // GetConnectionString returns the connection string for a database.
-func (p *StandardPgConnectionProvider) GetConnectionString(databaseName string) string {
+func (p *StandardConnectionProvider) GetConnectionString(databaseName string) string {
 	return p.connStringFunc(databaseName)
 }

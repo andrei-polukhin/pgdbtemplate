@@ -12,8 +12,8 @@ import (
 	"github.com/andrei-polukhin/pgdbtemplate"
 )
 
-// TestPgFileMigrationRunner tests the migration runner functionality.
-func TestPgFileMigrationRunner(t *testing.T) {
+// TestFileMigrationRunner tests the migration runner functionality.
+func TestFileMigrationRunner(t *testing.T) {
 	c := qt.New(t)
 	ctx := context.Background()
 
@@ -21,7 +21,7 @@ func TestPgFileMigrationRunner(t *testing.T) {
 	db := setupTestDatabase(c)
 	defer db.Close()
 
-	conn := &pgdbtemplate.StandardPgDatabaseConnection{DB: db}
+	conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
 	// Create temporary migration files.
 	tempDir := c.TempDir()
@@ -36,7 +36,7 @@ func TestPgFileMigrationRunner(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 
 	// Test migration runner creation.
-	runner := pgdbtemplate.NewPgFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
+	runner := pgdbtemplate.NewFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
 	c.Assert(runner, qt.IsNotNil)
 
 	// Run migrations on real database.
