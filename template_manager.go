@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const defaultAdminDBName = "postgres"
@@ -101,7 +103,7 @@ func (tm *PgTemplateManager) Initialize(ctx context.Context) error {
 	}
 
 	if err := tm.createTemplateDatabase(ctx); err != nil {
-		return fmt.Errorf("failed to create template database: %v", err)
+		return fmt.Errorf("failed to create template database: %w", err)
 	}
 
 	tm.initialized = true
@@ -122,20 +124,21 @@ func (tm *PgTemplateManager) CreateTestDatabase(ctx context.Context, testDBName 
 	// Connect to admin database for operations.
 	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to connect to admin database: %v", err)
+		return nil, "", fmt.Errorf("failed to connect to admin database: %w", err)
 	}
 	defer adminConn.Close()
 
 	// Create test database from template.
-	query := fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", dbName, tm.templateName)
+	query := fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s",
+		pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(tm.templateName))
 	if _, err := adminConn.ExecContext(ctx, query); err != nil {
-		return nil, "", fmt.Errorf("failed to create test database %s: %v", dbName, err)
+		return nil, "", fmt.Errorf("failed to create test database %s: %w", dbName, err)
 	}
 
 	// Connect to the new test database.
 	testConn, err := tm.provider.Connect(ctx, dbName)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to connect to test database: %v", err)
+		return nil, "", fmt.Errorf("failed to connect to test database: %w", err)
 	}
 
 	return testConn, dbName, nil
@@ -145,7 +148,7 @@ func (tm *PgTemplateManager) CreateTestDatabase(ctx context.Context, testDBName 
 func (tm *PgTemplateManager) DropTestDatabase(ctx context.Context, dbName string) error {
 	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
 	if err != nil {
-		return fmt.Errorf("failed to connect to admin database: %v", err)
+		return fmt.Errorf("failed to connect to admin database: %w", err)
 	}
 	defer adminConn.Close()
 
@@ -157,13 +160,13 @@ func (tm *PgTemplateManager) DropTestDatabase(ctx context.Context, dbName string
 	`
 	_, err = adminConn.ExecContext(ctx, terminateQuery, dbName)
 	if err != nil {
-		return fmt.Errorf("failed to terminate connections to database %q: %v", dbName, err)
+		return fmt.Errorf("failed to terminate connections to database %q: %w", dbName, err)
 	}
 
 	// Drop the database.
-	dropQuery := fmt.Sprintf("DROP DATABASE %s", dbName)
+	dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
 	if _, err := adminConn.ExecContext(ctx, dropQuery); err != nil {
-		return fmt.Errorf("failed to drop database %s: %v", dbName, err)
+		return fmt.Errorf("failed to drop database %s: %w", dbName, err)
 	}
 
 	return nil
@@ -180,7 +183,7 @@ func (tm *PgTemplateManager) Cleanup(ctx context.Context) error {
 
 	// Drop template database.
 	if err := tm.dropTemplateDatabase(ctx); err != nil {
-		return fmt.Errorf("failed to drop template database: %v", err)
+		return fmt.Errorf("failed to drop template database: %w", err)
 	}
 
 	tm.initialized = false
@@ -192,7 +195,7 @@ func (tm *PgTemplateManager) createTemplateDatabase(ctx context.Context) error {
 	// Connect to leader database.
 	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
 	if err != nil {
-		return fmt.Errorf("failed to connect to admin database: %v", err)
+		return fmt.Errorf("failed to connect to admin database: %w", err)
 	}
 	defer adminConn.Close()
 
@@ -206,33 +209,33 @@ func (tm *PgTemplateManager) createTemplateDatabase(ctx context.Context) error {
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		// Unexpected error.
-		return fmt.Errorf("failed to check if template exists: %v", err)
+		return fmt.Errorf("failed to check if template exists: %w", err)
 	}
 
 	// Create template database as it does not exist.
-	createQuery := fmt.Sprintf("CREATE DATABASE %s", tm.templateName)
+	createQuery := fmt.Sprintf("CREATE DATABASE %s", pq.QuoteIdentifier(tm.templateName))
 	if _, err := adminConn.ExecContext(ctx, createQuery); err != nil {
-		return fmt.Errorf("failed to create template database: %v", err)
+		return fmt.Errorf("failed to create template database: %w", err)
 	}
 
 	// Connect to template database and run migrations.
 	templateConn, err := tm.provider.Connect(ctx, tm.templateName)
 	if err != nil {
-		return fmt.Errorf("failed to connect to template database: %v", err)
+		return fmt.Errorf("failed to connect to template database: %w", err)
 	}
 	defer templateConn.Close()
 
 	// Run migrations if migrator is provided.
 	if tm.migrator != nil {
 		if err := tm.migrator.RunMigrations(ctx, templateConn); err != nil {
-			return fmt.Errorf("failed to run migrations on template: %v", err)
+			return fmt.Errorf("failed to run migrations on template: %w", err)
 		}
 	}
 
 	// Mark database as template.
-	markTemplateQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template TRUE", tm.templateName)
+	markTemplateQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template TRUE", pq.QuoteIdentifier(tm.templateName))
 	if _, err := adminConn.ExecContext(ctx, markTemplateQuery); err != nil {
-		return fmt.Errorf("failed to mark database as template: %v", err)
+		return fmt.Errorf("failed to mark database as template: %w", err)
 	}
 	return nil
 }
@@ -246,11 +249,14 @@ func (tm *PgTemplateManager) dropTemplateDatabase(ctx context.Context) error {
 	defer adminConn.Close()
 
 	// Unmark as template first.
-	unmarkQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template FALSE", tm.templateName)
-	adminConn.ExecContext(ctx, unmarkQuery) // Ignore errors
+	unmarkQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template FALSE", pq.QuoteIdentifier(tm.templateName))
+	_, err = adminConn.ExecContext(ctx, unmarkQuery)
+	if err != nil {
+		return fmt.Errorf("failed to unmark template database: %w", err)
+	}
 
 	// Drop template database.
-	dropQuery := fmt.Sprintf("DROP DATABASE %s", tm.templateName)
+	dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(tm.templateName))
 	_, err = adminConn.ExecContext(ctx, dropQuery)
 	return err
 }

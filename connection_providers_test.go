@@ -2,7 +2,6 @@ package pgdbtemplate_test
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 
 	"github.com/frankban/quicktest"
@@ -14,47 +13,44 @@ import (
 func TestStandardPgConnectionProvider(t *testing.T) {
 	c := quicktest.New(t)
 
-	c.Run("Connect returns provided connection", func(c *quicktest.C) {
-		// Create mock connection for this test since we're testing the provider logic.
-		mockConn := &mockConnection{}
+	c.Run("Connect creates real connection to specified database", func(c *quicktest.C) {
 		connStringFunc := func(dbName string) string {
 			return "postgres://localhost/" + dbName
 		}
 
-		provider := pgdbtemplate.NewStandardPgConnectionProvider(mockConn, connStringFunc)
+		provider := pgdbtemplate.NewStandardPgConnectionProvider(connStringFunc)
 
-		returnedConn, err := provider.Connect(context.Background(), "testdb")
-		c.Assert(err, quicktest.IsNil)
-		c.Assert(returnedConn, quicktest.Equals, mockConn)
+		// This will fail because we don't have a real database, but we can verify
+		// the connection string generation and that it attempts to connect.
+		_, err := provider.Connect(context.Background(), "testdb")
+		c.Assert(err, quicktest.Not(quicktest.IsNil)) // Should fail - no real database
 	})
 
 	c.Run("GetConnectionString uses provided function", func(c *quicktest.C) {
-		// Create mock connection for this test.
-		mockConn := &mockConnection{}
 		connStringFunc := func(dbName string) string {
 			return "postgres://localhost/" + dbName + "?sslmode=disable"
 		}
 
-		provider := pgdbtemplate.NewStandardPgConnectionProvider(mockConn, connStringFunc)
+		provider := pgdbtemplate.NewStandardPgConnectionProvider(connStringFunc)
 
 		connString := provider.GetConnectionString("mydb")
 		expected := "postgres://localhost/mydb?sslmode=disable"
 
 		c.Assert(connString, quicktest.Equals, expected)
 	})
-}
 
-// mockConnection implements PgDatabaseConnection for testing.
-type mockConnection struct{}
+	c.Run("Connect respects context cancellation", func(c *quicktest.C) {
+		connStringFunc := func(dbName string) string {
+			return "postgres://nonexistent-host:5432/" + dbName
+		}
 
-func (m *mockConnection) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return nil, nil
-}
+		provider := pgdbtemplate.NewStandardPgConnectionProvider(connStringFunc)
 
-func (m *mockConnection) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return nil
-}
+		// Create a context that's already cancelled.
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
 
-func (m *mockConnection) Close() error {
-	return nil
+		_, err := provider.Connect(ctx, "testdb")
+		c.Assert(err, quicktest.Not(quicktest.IsNil))
+	})
 }

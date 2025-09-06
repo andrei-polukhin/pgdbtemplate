@@ -18,8 +18,12 @@ type PgFileMigrationRunner struct {
 // NewPgFileMigrationRunner creates a new file-based migration runner.
 //
 // The caller is responsible for ensuring that the paths slice is not modified
-// after being passed to orderingFunc.
+// after being passed to orderingFunc. Upon the nil function provided, an alphabetical
+// sorting will be used.
 func NewPgFileMigrationRunner(paths []string, orderingFunc func([]string) []string) *PgFileMigrationRunner {
+	if orderingFunc == nil {
+		orderingFunc = AlphabeticalMigrationFilesSorting
+	}
 	return &PgFileMigrationRunner{
 		migrationPaths: paths,
 		orderingFunc:   orderingFunc,
@@ -34,7 +38,7 @@ func (r *PgFileMigrationRunner) RunMigrations(ctx context.Context, conn PgDataba
 	for _, path := range r.migrationPaths {
 		files, err := r.collectSQLFiles(path)
 		if err != nil {
-			return fmt.Errorf("failed to collect files from %s: %v", path, err)
+			return fmt.Errorf("failed to collect files from %s: %w", path, err)
 		}
 		allFiles = append(allFiles, files...)
 	}
@@ -47,7 +51,7 @@ func (r *PgFileMigrationRunner) RunMigrations(ctx context.Context, conn PgDataba
 	// Execute each file.
 	for _, file := range allFiles {
 		if err := r.executeFile(ctx, conn, file); err != nil {
-			return fmt.Errorf("failed to execute migration %s: %v", file, err)
+			return fmt.Errorf("failed to execute migration %s: %w", file, err)
 		}
 	}
 	return nil

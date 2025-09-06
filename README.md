@@ -33,13 +33,10 @@ import (
 
 func main() {
     // Create a connection provider.
-    db, _ := sql.Open("postgres", "postgres://user:pass@localhost/postgres")
-    conn := &pgdbtemplate.StandardPgDatabaseConnection{DB: db}
-    
     connStringFunc := func(dbName string) string {
         return fmt.Sprintf("postgres://user:pass@localhost/%s", dbName)
     }
-    provider := pgdbtemplate.NewStandardPgConnectionProvider(conn, connStringFunc)
+    provider := pgdbtemplate.NewStandardPgConnectionProvider(connStringFunc)
     
     // Create migration runner.
     migrationRunner := pgdbtemplate.NewPgFileMigrationRunner(
@@ -250,13 +247,13 @@ func TestMain(m *testing.M) {
     
     // Start PostgreSQL container.
     if err := setupPostgresContainer(ctx); err != nil {
-        panic(fmt.Sprintf("failed to setup postgres container: %v", err))
+        panic(fmt.Sprintf("failed to setup postgres container: %w", err))
     }
     defer pgContainer.Terminate(ctx)
     
     // Setup template manager.
     if err := setupTemplateManagerWithContainer(ctx); err != nil {
-        panic(fmt.Sprintf("failed to setup template manager: %v", err))
+        panic(fmt.Sprintf("failed to setup template manager: %w", err))
     }
     defer templateManager.Cleanup(ctx)
     
@@ -433,7 +430,7 @@ func (r *customMigrationRunner) RunMigrations(ctx context.Context, conn pgdbtemp
     // Apply up migrations.
     for _, migration := range r.upMigrations {
         if _, err := conn.ExecContext(ctx, migration); err != nil {
-            return fmt.Errorf("migration failed: %v", err)
+            return fmt.Errorf("migration failed: %w", err)
         }
     }
     return nil

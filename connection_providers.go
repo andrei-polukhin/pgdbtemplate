@@ -3,6 +3,8 @@ package pgdbtemplate
 import (
 	"context"
 	"database/sql"
+
+	_ "github.com/lib/pq"
 )
 
 // StandardPgDatabaseConnection wraps a standard database/sql connection.
@@ -24,21 +26,29 @@ func (c *StandardPgDatabaseConnection) Close() error {
 
 // StandardPgConnectionProvider provides PostgreSQL connections.
 type StandardPgConnectionProvider struct {
-	conn           PgDatabaseConnection
 	connStringFunc func(databaseName string) string
 }
 
 // NewStandardPgConnectionProvider creates a new StandardPgConnectionProvider.
-func NewStandardPgConnectionProvider(conn PgDatabaseConnection, connStringFunc func(databaseName string) string) *StandardPgConnectionProvider {
+func NewStandardPgConnectionProvider(connStringFunc func(databaseName string) string) *StandardPgConnectionProvider {
 	return &StandardPgConnectionProvider{
-		conn:           conn,
 		connStringFunc: connStringFunc,
 	}
 }
 
-// PgConnect creates a connection to the specified database.
+// Connect creates a connection to the specified database.
 func (p *StandardPgConnectionProvider) Connect(ctx context.Context, databaseName string) (PgDatabaseConnection, error) {
-	return p.conn, nil
+	connString := p.connStringFunc(databaseName)
+	db, err := sql.Open("postgres", connString)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &StandardPgDatabaseConnection{DB: db}, nil
 }
 
 // PgGetConnectionString returns the connection string for a database.
