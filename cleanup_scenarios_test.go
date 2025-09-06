@@ -14,6 +14,17 @@ import (
 	"github.com/andrei-polukhin/pgdbtemplate"
 )
 
+var (
+	testConnString string
+)
+
+func init() {
+	testConnString = os.Getenv("POSTGRES_CONNECTION_STRING")
+	if testConnString == "" {
+		testConnString = "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
+	}
+}
+
 // TestCreateTestDatabaseCleanupOnConnectionFailure tests that a test database
 // is dropped if it's created successfully but connection to it fails.
 func TestCreateTestDatabaseCleanupOnConnectionFailure(t *testing.T) {
@@ -47,13 +58,14 @@ func TestCreateTestDatabaseCleanupOnConnectionFailure(t *testing.T) {
 	// This should fail because connection to test database fails,
 	// but the test database should be automatically dropped.
 	_, _, err = tm.CreateTestDatabase(ctx)
-	c.Assert(err, qt.IsNotNil)
 	c.Assert(err, qt.ErrorMatches, ".*failed to connect to test database.*")
 
 	// Verify the test database was dropped (doesn't exist).
 	adminConn, err := failingProvider.Connect(ctx, "postgres")
 	c.Assert(err, qt.IsNil)
-	defer adminConn.Close()
+	defer func() {
+		c.Assert(adminConn.Close(), qt.IsNil)
+	}()
 
 	// Check that no test databases with our prefix exist.
 	var count int
@@ -102,13 +114,15 @@ func TestCreateTemplateDatabaseCleanupOnConnectionFailure(t *testing.T) {
 	// Verify the template database was dropped (doesn't exist).
 	adminConn, err := failingProvider.Connect(ctx, "postgres")
 	c.Assert(err, qt.IsNil)
-	defer adminConn.Close()
+	defer func() {
+		c.Assert(adminConn.Close(), qt.IsNil)
+	}()
 
 	// Check that the template database doesn't exist.
 	var exists bool
 	checkQuery := "SELECT TRUE FROM pg_database WHERE datname = $1"
 	err = adminConn.QueryRowContext(ctx, checkQuery, templateName).Scan(&exists)
-	c.Assert(err, qt.Equals, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed initialization"))
+	c.Assert(err, qt.ErrorIs, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed initialization"))
 }
 
 // TestCreateTemplateDatabaseCleanupOnMigrationFailure tests that a template
@@ -145,13 +159,15 @@ func TestCreateTemplateDatabaseCleanupOnMigrationFailure(t *testing.T) {
 	// Verify the template database was dropped (doesn't exist).
 	adminConn, err := connProvider.Connect(ctx, "postgres")
 	c.Assert(err, qt.IsNil)
-	defer adminConn.Close()
+	defer func() {
+		c.Assert(adminConn.Close(), qt.IsNil)
+	}()
 
 	// Check that the template database doesn't exist.
 	var exists bool
 	checkQuery := "SELECT TRUE FROM pg_database WHERE datname = $1"
 	err = adminConn.QueryRowContext(ctx, checkQuery, templateName).Scan(&exists)
-	c.Assert(err, qt.Equals, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed migration"))
+	c.Assert(err, qt.ErrorIs, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed migration"))
 }
 
 // TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure tests that a template
@@ -169,11 +185,13 @@ func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure(t *testing.T) {
 	adminConn, err := realProvider.Connect(ctx, "postgres")
 	c.Assert(err, qt.IsNil)
 	dropQuery := fmt.Sprintf("DROP DATABASE IF EXISTS %s", templateName)
-	adminConn.ExecContext(ctx, dropQuery) // Ignore errors.
-	adminConn.Close()
+	_, err = adminConn.ExecContext(ctx, dropQuery)
+	c.Assert(err, qt.IsNil)
+	err = adminConn.Close()
+	c.Assert(err, qt.IsNil)
 
-	// Create a connection provider that fails when executing ALTER DATABASE
-	// ... WITH is_template TRUE.
+	// Create a connection provider that fails when executing
+	// ALTER DATABASE ... WITH is_template TRUE.
 	failingProvider := &markTemplateFailProvider{
 		adminDBName: "postgres",
 	}
@@ -197,62 +215,20 @@ func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure(t *testing.T) {
 	// Verify the template database was dropped (doesn't exist).
 	adminConn, err = failingProvider.Connect(ctx, "postgres")
 	c.Assert(err, qt.IsNil)
-	defer adminConn.Close()
+	defer func() {
+		c.Assert(adminConn.Close(), qt.IsNil)
+	}()
 
 	// Check that the template database doesn't exist.
 	var exists bool
 	checkQuery := "SELECT TRUE FROM pg_database WHERE datname = $1"
 	err = adminConn.QueryRowContext(ctx, checkQuery, templateName).Scan(&exists)
-	c.Assert(err, qt.Equals, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed mark template"))
+	c.Assert(err, qt.ErrorIs, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed mark template"))
 }
 
 // Helper function to create a test connection provider for testing.
 func createRealConnectionProvider() pgdbtemplate.ConnectionProvider {
-	connString := os.Getenv("POSTGRES_CONNECTION_STRING")
-	if connString == "" {
-		connString = "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
-	}
-
-	connStringFunc := func(dbName string) string {
-		// Replace database name in connection string.
-		parts := strings.Split(connString, "/")
-		if len(parts) > 3 {
-			parts[3] = strings.Split(parts[3], "?")[0] // Remove query params.
-			parts[3] = dbName
-		}
-		result := strings.Join(parts, "/")
-		if strings.Contains(connString, "?") {
-			queryStart := strings.Index(connString, "?")
-			result += connString[queryStart:]
-		}
-		return result
-	}
-
-	return &testRealConnectionProvider{connStringFunc: connStringFunc}
-}
-
-// testRealConnectionProvider creates actual database connections for testing.
-type testRealConnectionProvider struct {
-	connStringFunc func(string) string
-}
-
-func (r *testRealConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
-	connString := r.connStringFunc(databaseName)
-	db, err := sql.Open("postgres", connString)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := db.PingContext(ctx); err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	return &pgdbtemplate.StandardDatabaseConnection{DB: db}, nil
-}
-
-func (r *testRealConnectionProvider) GetConnectionString(databaseName string) string {
-	return r.connStringFunc(databaseName)
+	return pgdbtemplate.NewStandardConnectionProvider(testConnectionStringFunc)
 }
 
 // testDatabaseConnectionFailProvider fails when connecting to databases
@@ -279,7 +255,7 @@ func (p *testDatabaseConnectionFailProvider) Connect(ctx context.Context, databa
 }
 
 func (p *testDatabaseConnectionFailProvider) GetConnectionString(databaseName string) string {
-	return createRealConnectionProvider().GetConnectionString(databaseName)
+	return testConnectionStringFunc(databaseName)
 }
 
 // templateConnectionFailProvider fails when connecting to a specific
@@ -299,7 +275,7 @@ func (p *templateConnectionFailProvider) Connect(ctx context.Context, databaseNa
 }
 
 func (p *templateConnectionFailProvider) GetConnectionString(databaseName string) string {
-	return createRealConnectionProvider().GetConnectionString(databaseName)
+	return testConnectionStringFunc(databaseName)
 }
 
 // markTemplateFailProvider fails when executing
@@ -323,7 +299,7 @@ func (p *markTemplateFailProvider) Connect(ctx context.Context, databaseName str
 }
 
 func (p *markTemplateFailProvider) GetConnectionString(databaseName string) string {
-	return createRealConnectionProvider().GetConnectionString(databaseName)
+	return testConnectionStringFunc(databaseName)
 }
 
 // markTemplateFailConnection wraps a connection and fails on

@@ -13,6 +13,7 @@ import (
 func TestStandardConnectionProvider(t *testing.T) {
 	t.Parallel()
 	c := qt.New(t)
+	ctx := context.Background()
 
 	c.Run("Basic connection string generation", func(c *qt.C) {
 		connStringFunc := func(dbName string) string {
@@ -23,7 +24,7 @@ func TestStandardConnectionProvider(t *testing.T) {
 
 		// This will fail because we don't have a real database, but we can verify
 		// the connection string generation and that it attempts to connect.
-		_, err := provider.Connect(context.Background(), "testdb")
+		_, err := provider.Connect(ctx, "testdb")
 		c.Assert(err, qt.IsNotNil)
 	})
 

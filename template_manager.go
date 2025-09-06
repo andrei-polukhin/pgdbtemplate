@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lib/pq"
@@ -39,13 +40,17 @@ type MigrationRunner interface {
 // TemplateManager manages PostgreSQL template databases for fast test database
 // creation.
 type TemplateManager struct {
-	provider     ConnectionProvider
-	migrator     MigrationRunner
+	provider ConnectionProvider
+	migrator MigrationRunner
+
 	templateName string
 	testPrefix   string
 	adminDBName  string
-	mu           sync.Mutex
-	initialized  bool
+
+	mu          sync.Mutex
+	initialized bool
+
+	counter int64 // Atomic counter for unique database names.
 }
 
 // Config holds configuration for the template manager.
@@ -117,7 +122,7 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 		return nil, "", err
 	}
 
-	dbName := fmt.Sprintf("%s%d", tm.testPrefix, time.Now().UnixNano())
+	dbName := fmt.Sprintf("%s%d_%d", tm.testPrefix, time.Now().UnixNano(), atomic.AddInt64(&tm.counter, 1))
 	if len(testDBName) > 0 && testDBName[0] != "" {
 		dbName = testDBName[0]
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -74,8 +75,8 @@ func TestTemplateManager(t *testing.T) {
 	c.Assert(hasTestTable(ctx, testDB2), qt.IsTrue)
 
 	// Clean up test databases.
-	testDB1.Close()
-	testDB2.Close()
+	c.Assert(testDB1.Close(), qt.IsNil)
+	c.Assert(testDB2.Close(), qt.IsNil)
 
 	err = tm.DropTestDatabase(ctx, testDBName1)
 	c.Assert(err, qt.IsNil)
@@ -92,9 +93,9 @@ func TestTemplateManager(t *testing.T) {
 
 	// Verify system databases still exist and our test databases are gone.
 	databases := listDatabases(ctx, c, connProvider)
-	c.Assert(contains(databases, "postgres"), qt.IsTrue)
-	c.Assert(contains(databases, "template0"), qt.IsTrue)
-	c.Assert(contains(databases, "template1"), qt.IsTrue)
+	c.Assert(slices.Contains(databases, "postgres"), qt.IsTrue)
+	c.Assert(slices.Contains(databases, "template0"), qt.IsTrue)
+	c.Assert(slices.Contains(databases, "template1"), qt.IsTrue)
 	// Verify our specific test databases are gone
 	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
 	c.Assert(databaseExists(ctx, connProvider, testDBName1), qt.IsFalse)
@@ -136,7 +137,10 @@ func TestTemplateManagerConcurrentAccess(t *testing.T) {
 				errors <- err
 				return
 			}
-			testDB.Close()
+			if err := testDB.Close(); err != nil {
+				errors <- err
+				return
+			}
 			results <- testDBName
 		}(i)
 	}
@@ -216,7 +220,7 @@ func TestTemplateManagerValidation(t *testing.T) {
 			provider := &mockConnectionProvider{connString: test.connString}
 			config := pgdbtemplate.Config{
 				ConnectionProvider: provider,
-				MigrationRunner:    &mockMigrationRunner{},
+				MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
 			}
 
 			_, err := pgdbtemplate.NewTemplateManager(config)
@@ -231,28 +235,24 @@ func TestTemplateManagerValidation(t *testing.T) {
 
 // Helper functions and test utilities.
 
+// testConnectionStringFunc creates a connection string for the given database name.
+func testConnectionStringFunc(dbName string) string {
+	// Replace database name in connection string.
+	parts := strings.Split(testConnString, "/")
+	if len(parts) > 3 {
+		parts[3] = strings.Split(parts[3], "?")[0] // Remove query params.
+		parts[3] = dbName
+	}
+	result := strings.Join(parts, "/")
+	if strings.Contains(testConnString, "?") {
+		queryStart := strings.Index(testConnString, "?")
+		result += testConnString[queryStart:]
+	}
+	return result
+}
+
 func setupTestConnectionProvider() pgdbtemplate.ConnectionProvider {
-	connString := os.Getenv("POSTGRES_CONNECTION_STRING")
-	if connString == "" {
-		connString = "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
-	}
-
-	connStringFunc := func(dbName string) string {
-		// Replace database name in connection string.
-		parts := strings.Split(connString, "/")
-		if len(parts) > 3 {
-			parts[3] = strings.Split(parts[3], "?")[0] // Remove query params.
-			parts[3] = dbName
-		}
-		result := strings.Join(parts, "/")
-		if strings.Contains(connString, "?") {
-			queryStart := strings.Index(connString, "?")
-			result += connString[queryStart:]
-		}
-		return result
-	}
-
-	return &realConnectionProvider{connStringFunc: connStringFunc}
+	return &realConnectionProvider{connStringFunc: testConnectionStringFunc}
 }
 
 func setupTestMigrationRunner(c *qt.C) pgdbtemplate.MigrationRunner {
@@ -308,11 +308,15 @@ func hasTestTable(ctx context.Context, conn pgdbtemplate.DatabaseConnection) boo
 func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.ConnectionProvider) []string {
 	adminConn, err := provider.Connect(ctx, "postgres")
 	c.Assert(err, qt.IsNil)
-	defer adminConn.Close()
+	defer func() {
+		c.Assert(adminConn.Close(), qt.IsNil)
+	}()
 
 	rows, err := adminConn.(*pgdbtemplate.StandardDatabaseConnection).Query("SELECT datname FROM pg_database WHERE datistemplate = false")
 	c.Assert(err, qt.IsNil)
-	defer rows.Close()
+	defer func() {
+		c.Assert(rows.Close(), qt.IsNil)
+	}()
 
 	var databases []string
 	for rows.Next() {
@@ -321,11 +325,14 @@ func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.Connectio
 		c.Assert(err, qt.IsNil)
 		databases = append(databases, name)
 	}
+	c.Assert(rows.Err(), qt.IsNil)
 
 	// Also include template databases for verification.
 	rows2, err := adminConn.(*pgdbtemplate.StandardDatabaseConnection).Query("SELECT datname FROM pg_database WHERE datistemplate = true")
 	c.Assert(err, qt.IsNil)
-	defer rows2.Close()
+	defer func() {
+		c.Assert(rows2.Close(), qt.IsNil)
+	}()
 
 	for rows2.Next() {
 		var name string
@@ -333,17 +340,9 @@ func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.Connectio
 		c.Assert(err, qt.IsNil)
 		databases = append(databases, name)
 	}
+	c.Assert(rows.Err(), qt.IsNil)
 
 	return databases
-}
-
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }
 
 // Mock implementations for testing.
@@ -360,12 +359,6 @@ func (m *mockConnectionProvider) GetConnectionString(databaseName string) string
 	return m.connString
 }
 
-type mockMigrationRunner struct{}
-
-func (m *mockMigrationRunner) RunMigrations(ctx context.Context, conn pgdbtemplate.DatabaseConnection) error {
-	return nil
-}
-
 // realConnectionProvider creates actual database connections for testing.
 type realConnectionProvider struct {
 	connStringFunc func(string) string
@@ -379,7 +372,7 @@ func (r *realConnectionProvider) Connect(ctx context.Context, databaseName strin
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close() // Ignore close error since we're already in an error state
 		return nil, err
 	}
 

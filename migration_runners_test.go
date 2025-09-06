@@ -20,7 +20,9 @@ func TestFileMigrationRunner(t *testing.T) {
 
 	// Set up real database connection.
 	db := setupTestDatabase(c)
-	defer db.Close()
+	defer func() {
+		c.Assert(db.Close(), qt.IsNil)
+	}()
 
 	conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
@@ -88,12 +90,7 @@ func TestAlphabeticalMigrationFilesSorting(t *testing.T) {
 
 // setupTestDatabase creates a test database connection.
 func setupTestDatabase(c *qt.C) *sql.DB {
-	connString := os.Getenv("POSTGRES_CONNECTION_STRING")
-	if connString == "" {
-		connString = "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
-	}
-
-	db, err := sql.Open("postgres", connString)
+	db, err := sql.Open("postgres", testConnString)
 	c.Assert(err, qt.IsNil)
 
 	err = db.Ping()
