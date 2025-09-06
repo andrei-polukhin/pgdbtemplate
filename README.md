@@ -25,6 +25,7 @@ package main
 import (
     "context"
     "database/sql"
+    "fmt"
     "log"
     
     "github.com/andrei-polukhin/pgdbtemplate"

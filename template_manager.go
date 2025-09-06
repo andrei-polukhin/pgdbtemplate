@@ -112,7 +112,7 @@ func (tm *TemplateManager) Initialize(ctx context.Context) error {
 }
 
 // CreateTestDatabase creates a new test database from the template.
-func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ...string) (DatabaseConnection, string, error) {
+func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ...string) (_ DatabaseConnection, _ string, err error) {
 	if err := tm.Initialize(ctx); err != nil {
 		return nil, "", err
 	}
@@ -135,6 +135,15 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 	if _, err := adminConn.ExecContext(ctx, query); err != nil {
 		return nil, "", fmt.Errorf("failed to create test database %s: %w", dbName, err)
 	}
+
+	// Drop the test database if any further steps fail.
+	defer func() {
+		if err == nil {
+			return
+		}
+		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
+		adminConn.ExecContext(ctx, dropQuery) // Ignore errors.
+	}()
 
 	// Connect to the new test database.
 	testConn, err := tm.provider.Connect(ctx, dbName)
