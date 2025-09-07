@@ -154,7 +154,7 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 			return
 		}
 		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
-		adminConn.ExecContext(ctx, dropQuery) // Ignore errors.
+		adminConn.ExecContext(ctx, dropQuery) // #nosec G104 -- Cleanup errors are intentionally ignored.
 	}()
 
 	// Connect to the new test database.
@@ -249,7 +249,7 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 		}
 
 		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(tm.templateName))
-		adminConn.ExecContext(ctx, dropQuery) // Ignore errors.
+		adminConn.ExecContext(ctx, dropQuery) // #nosec G104 -- Cleanup errors are intentionally ignored.
 	}()
 
 	// Connect to template database and run migrations.

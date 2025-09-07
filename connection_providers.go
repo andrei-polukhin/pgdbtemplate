@@ -56,7 +56,7 @@ func (p *StandardConnectionProvider) Connect(ctx context.Context, databaseName s
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		db.Close() // #nosec G104 -- Close error in error path is not critical.
 		return nil, err
 	}
 	return &StandardDatabaseConnection{DB: db}, nil

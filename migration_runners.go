@@ -80,7 +80,7 @@ func (r *FileMigrationRunner) collectSQLFiles(path string) ([]string, error) {
 }
 
 func (r *FileMigrationRunner) executeFile(ctx context.Context, conn DatabaseConnection, filePath string) error {
-	content, err := os.ReadFile(filePath)
+	content, err := os.ReadFile(filePath) // #nosec G304 -- Migration files are controlled by the application.
 	if err != nil {
 		return err
 	}
