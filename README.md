@@ -12,6 +12,7 @@ template databases for lightning-fast test execution.
 - **🔒 Thread-safe** concurrent test database management
 - **📊 Scales with complexity** - performance advantage increases with schema complexity
 - **🎯 PostgreSQL-specific** with connection string validation
+- **⚡ Multiple drivers** - supports both `database/sql` and `pgx` drivers
 - **🧪 Flexible testing** support for various test scenarios
 - **📦 Testcontainers integration** for containerized testing
 - **🔧 Configurable** migration runners and connection providers
@@ -29,10 +30,8 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
 	_ "github.com/lib/pq"
@@ -83,7 +82,7 @@ func main() {
 
 ## Usage Examples
 
-### 1. Standard Testing with Existing PostgreSQL
+### 1. Pgx Testing with Existing PostgreSQL
 
 ```go
 package myapp_test
@@ -93,18 +92,16 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
-	_ "github.com/lib/pq"
 )
 
 var templateManager *pgdbtemplate.TemplateManager
 
 func TestMain(m *testing.M) {
 	// Setup template manager once.
-	if err := setupTemplateManager(); err != nil {
+	if err := setupPgxTemplateManager(); err != nil {
 		log.Fatalf("failed to setup template manager: %v", err)
 	}
 
@@ -116,14 +113,20 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func setupTemplateManager() error {
+func setupPgxTemplateManager() error {
 	baseConnString := "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
 
-	// Create connection provider using the built-in standard provider.
+	// Create pgx connection provider with connection pooling.
 	connStringFunc := func(dbName string) string {
-		return strings.Replace(baseConnString, "/postgres?", "/"+dbName+"?", 1)
+		return pgdbtemplate.ReplaceDatabaseInConnectionString(baseConnString, dbName)
 	}
-	provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
+	
+	// Configure connection pool settings using options.
+	provider := pgdbtemplate.NewPgxConnectionProvider(
+		connStringFunc,
+		pgdbtemplate.WithPgxMaxConns(10),
+		pgdbtemplate.WithPgxMinConns(2),
+	)
 
 	// Create migration runner.
 	migrationRunner := pgdbtemplate.NewFileMigrationRunner(
@@ -135,11 +138,8 @@ func setupTemplateManager() error {
 	config := pgdbtemplate.Config{
 		ConnectionProvider: provider,
 		MigrationRunner:    migrationRunner,
-		TemplateName:       "myapp_test_template",
-		TestDBPrefix:       "test_myapp_",
 	}
 
-	var err error
 	templateManager, err = pgdbtemplate.NewTemplateManager(config)
 	if err != nil {
 		return fmt.Errorf("failed to create template manager: %w", err)
@@ -152,27 +152,28 @@ func setupTemplateManager() error {
 	return nil
 }
 
-// Individual test function.
-func TestUserRepository(t *testing.T) {
+// Individual test function using pgx.
+func TestUserRepositoryPgx(t *testing.T) {
 	ctx := context.Background()
 
-	// Create isolated test database.
-	testDB, testDBName, err := templateManager.CreateTestDatabase(ctx)
+	// Create isolated test database with pgx connection.
+	testConn, testDBName, err := templateManager.CreateTestDatabase(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer testDB.Close()
+	defer testConn.Close()
 	defer templateManager.DropTestDatabase(ctx, testDBName)
 
-	// Your test code here using testDB.
-	_, err = testDB.ExecContext(ctx, "INSERT INTO users (name, email) VALUES ($1, $2)", 
-		"John Doe", "john@example.com")
+	// Use pgx-specific features like native PostgreSQL types.
+	_, err = testConn.ExecContext(ctx, 
+		"INSERT INTO users (name, email, created_at) VALUES ($1, $2, NOW())", 
+		"Jane Doe", "jane@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var count int
-	err = testDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+	err = testConn.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,11 +187,11 @@ func TestUserRepository(t *testing.T) {
 func TestWithCustomDBName(t *testing.T) {
 	ctx := context.Background()
 
-	testDB, testDBName, err := templateManager.CreateTestDatabase(ctx, "custom_test_db")
+	testConn, testDBName, err := templateManager.CreateTestDatabase(ctx, "custom_test_db")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer testDB.Close()
+	defer testConn.Close()
 	defer templateManager.DropTestDatabase(ctx, testDBName)
 
 	// testDBName will be "custom_test_db".
@@ -205,7 +206,6 @@ package myapp_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"strings"
@@ -269,14 +269,7 @@ func setupTemplateManagerWithContainer(ctx context.Context) error {
 	// Create connection provider using the built-in standard provider.
 	connStringFunc := func(dbName string) string {
 		// Replace the database name in the connection string.
-		parts := strings.Split(connStr, "/")
-		if len(parts) > 3 {
-			// Replace database part (remove query params first).
-			dbPart := strings.Split(parts[3], "?")
-			dbPart[0] = dbName
-			parts[3] = strings.Join(dbPart, "?")
-		}
-		return strings.Join(parts, "/")
+		return pgdbtemplate.ReplaceDatabaseInConnectionString(connStr, dbName)
 	}
 	provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
 
@@ -372,14 +365,28 @@ The `StandardConnectionProvider` supports common database connection pooling
 options without requiring custom implementations:
 
 ```go
+import "time"
+
 provider := pgdbtemplate.NewStandardConnectionProvider(
-	func (dbName string) string {
+	func(dbName string) string {
 		return "..."
 	},
 	pgdbtemplate.WithMaxOpenConns(25),
 	pgdbtemplate.WithMaxIdleConns(10),
 	pgdbtemplate.WithConnMaxLifetime(time.Hour),
 	pgdbtemplate.WithConnMaxIdleTime(30*time.Minute),
+)
+```
+
+The same applies to `PgxConnectionProvider`:
+
+```go
+provider := pgdbtemplate.NewPgxConnectionProvider(
+	func(dbName string) string {
+		return "..."
+	},
+	pgdbtemplate.WithPgxMaxConns(10),
+	pgdbtemplate.WithPgxMinConns(2),
 )
 ```
 
@@ -431,20 +438,16 @@ migrations/
 
 ## Configuration Options
 
-### Config Fields
-
-- `ConnectionProvider`: Interface for creating database connections
-- `MigrationRunner`: Interface for running database migrations  
-- `TemplateName`: Name of the template database (auto-generated if empty)
-- `TestDBPrefix`: Prefix for test database names (default: "test_")
-- `AdminDBName`: Admin database name for operations (default: "postgres")
-
 ### Environment Variables
 
 ```bash
-# For tests.
+# Required for running tests - the library will panic if this is not set.
 export POSTGRES_CONNECTION_STRING="postgres://user:pass@localhost:5432/postgres?sslmode=disable"
 ```
+
+**Note**: The `POSTGRES_CONNECTION_STRING` environment variable is **mandatory**
+when running tests. The library will panic during test initialization
+if this variable is not set.
 
 ## Thread Safety
 
@@ -473,7 +476,7 @@ making it safe to use in any concurrent testing scenario.
 
 - PostgreSQL 9.5+ (for template database support)
 - Go 1.21+
-- PostgreSQL driver (`github.com/lib/pq` recommended)
+- PostgreSQL driver (`github.com/lib/pq` or `github.com/jackc/pgx/v5`)
 
 ## Contributing
 
