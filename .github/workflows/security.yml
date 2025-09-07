@@ -24,27 +24,29 @@ jobs:
         go-version: '1.21'
 
     - name: Run Gosec Security Scanner
-      uses: securecodewarrior/github-action-gosec@master
-      with:
-        args: '-fmt sarif -out results.sarif ./...'
-      continue-on-error: true
-
-    - name: Upload SARIF file
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: results.sarif
-
-    - name: Dependency vulnerability scan
       run: |
-        go install github.com/sonatypecommunity/nancy@latest
-        go list -json -deps ./... | nancy sleuth
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec -fmt=json -out=gosec-report.json -stdout -verbose=text ./...
 
-    - name: Check for known vulnerabilities
+    - name: Run staticcheck
+      uses: dominikh/staticcheck-action@v1.3.0
+      with:
+        version: "2023.1.6"
+        install-go: false
+
+    - name: Check for known vulnerabilities  
       run: |
         go install golang.org/x/vuln/cmd/govulncheck@latest
         govulncheck ./...
 
-    - name: Audit Go modules
+    - name: Dependency audit
       run: |
+        # Use go mod tidy and verify for basic dependency checks.
         go mod tidy
         go mod verify
+
+    - name: Audit Go modules
+      run: |
+        go mod download
+        # Show dependency graph for review.
+        go mod graph | head -20
