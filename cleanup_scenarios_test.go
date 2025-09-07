@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,17 +12,6 @@ import (
 
 	"github.com/andrei-polukhin/pgdbtemplate"
 )
-
-var (
-	testConnString string
-)
-
-func init() {
-	testConnString = os.Getenv("POSTGRES_CONNECTION_STRING")
-	if testConnString == "" {
-		testConnString = "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
-	}
-}
 
 // TestCreateTestDatabaseCleanupOnConnectionFailure tests that a test database
 // is dropped if it's created successfully but connection to it fails.
@@ -308,7 +296,7 @@ type markTemplateFailConnection struct {
 }
 
 // ExecContext implements pgdbtemplate.DatabaseConnection.ExecContext.
-func (c *markTemplateFailConnection) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+func (c *markTemplateFailConnection) ExecContext(ctx context.Context, query string, args ...any) (any, error) {
 	// Look for ALTER DATABASE statements with is_template TRUE.
 	if strings.Contains(query, "ALTER DATABASE") && strings.Contains(query, "is_template TRUE") {
 		return nil, fmt.Errorf("intentional mark template failure")

@@ -3,8 +3,10 @@ package pgdbtemplate_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	qt "github.com/frankban/quicktest"
 	_ "github.com/lib/pq"
@@ -26,11 +28,21 @@ func TestFileMigrationRunner(t *testing.T) {
 
 	conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
+	// Create unique table names to avoid conflicts.
+	uniqueSuffix := fmt.Sprintf("_%d_%d", time.Now().UnixNano(), os.Getpid())
+	tableName := "test_users" + uniqueSuffix
+
+	// Ensure cleanup of any tables created during test.
+	defer func() {
+		_, err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+		c.Assert(err, qt.IsNil)
+	}()
+
 	// Create temporary migration files.
 	tempDir := c.TempDir()
 
-	migration1 := "CREATE TABLE test_users (id SERIAL PRIMARY KEY, name VARCHAR(100));"
-	migration2 := "INSERT INTO test_users (name) VALUES ('Alice'), ('Bob');"
+	migration1 := fmt.Sprintf("CREATE TABLE %s (id SERIAL PRIMARY KEY, name VARCHAR(100));", tableName)
+	migration2 := fmt.Sprintf("INSERT INTO %s (name) VALUES ('Alice'), ('Bob');", tableName)
 
 	err := os.WriteFile(tempDir+"/001_users.sql", []byte(migration1), 0644)
 	c.Assert(err, qt.IsNil)
@@ -48,19 +60,15 @@ func TestFileMigrationRunner(t *testing.T) {
 
 	// Verify table was created and data inserted.
 	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM test_users").Scan(&count)
+	err = db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&count)
 	c.Assert(err, qt.IsNil)
 	c.Assert(count, qt.Equals, 2)
 
 	// Verify data content.
 	var name string
-	err = db.QueryRow("SELECT name FROM test_users ORDER BY id LIMIT 1").Scan(&name)
+	err = db.QueryRow(fmt.Sprintf("SELECT name FROM %s ORDER BY id LIMIT 1", tableName)).Scan(&name)
 	c.Assert(err, qt.IsNil)
 	c.Assert(name, qt.Equals, "Alice")
-
-	// Clean up.
-	_, err = db.Exec("DROP TABLE test_users")
-	c.Assert(err, qt.IsNil)
 }
 
 // TestAlphabeticalMigrationFilesSorting tests the sorting function.
@@ -90,7 +98,7 @@ func TestAlphabeticalMigrationFilesSorting(t *testing.T) {
 
 // setupTestDatabase creates a test database connection.
 func setupTestDatabase(c *qt.C) *sql.DB {
-	db, err := sql.Open("postgres", testConnString)
+	db, err := sql.Open("postgres", testConnectionString)
 	c.Assert(err, qt.IsNil)
 
 	err = db.Ping()
@@ -107,7 +115,7 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 
 	c.Run("Invalid SQL causes error", func(c *qt.C) {
 		db := setupTestDatabase(c)
-		defer db.Close()
+		defer func() { c.Assert(db.Close(), qt.IsNil) }()
 		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
 		tempDir := c.TempDir()
@@ -123,7 +131,7 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 
 	c.Run("Non-existent directory", func(c *qt.C) {
 		db := setupTestDatabase(c)
-		defer db.Close()
+		defer func() { c.Assert(db.Close(), qt.IsNil) }()
 		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
 		runner := pgdbtemplate.NewFileMigrationRunner([]string{"/non/existent/path"}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
@@ -134,7 +142,7 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 
 	c.Run("Empty migration directory", func(c *qt.C) {
 		db := setupTestDatabase(c)
-		defer db.Close()
+		defer func() { c.Assert(db.Close(), qt.IsNil) }()
 		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
 		tempDir := c.TempDir()
@@ -145,7 +153,7 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 
 	c.Run("File read permission error", func(c *qt.C) {
 		db := setupTestDatabase(c)
-		defer db.Close()
+		defer func() { c.Assert(db.Close(), qt.IsNil) }()
 		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
 		tempDir := c.TempDir()

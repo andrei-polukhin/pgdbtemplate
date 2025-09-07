@@ -15,7 +15,7 @@ func WithMaxOpenConns(n int) StandardDatabaseConnectionOption {
 	}
 }
 
-// WithMaxIdleConns sets the maximum number of connections
+// WithMaxIdleConns sets the maximum number of connections.
 // in the idle pool.
 func WithMaxIdleConns(n int) StandardDatabaseConnectionOption {
 	return func(db *sql.DB) {
