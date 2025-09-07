@@ -2,7 +2,6 @@ package pgdbtemplate_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"slices"
@@ -39,7 +38,6 @@ func TestTemplateManager(t *testing.T) {
 		MigrationRunner:    migrationRunner,
 		TemplateName:       fmt.Sprintf("test_template_main_%d_%d", time.Now().UnixNano(), os.Getpid()),
 		TestDBPrefix:       fmt.Sprintf("test_db_main_%d_", time.Now().UnixNano()),
-		AdminDBName:        "postgres",
 	}
 
 	tm, err := pgdbtemplate.NewTemplateManager(config)
@@ -96,7 +94,7 @@ func TestTemplateManager(t *testing.T) {
 	c.Assert(slices.Contains(databases, "postgres"), qt.IsTrue)
 	c.Assert(slices.Contains(databases, "template0"), qt.IsTrue)
 	c.Assert(slices.Contains(databases, "template1"), qt.IsTrue)
-	// Verify our specific test databases are gone
+	// Verify our specific test databases are gone.
 	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
 	c.Assert(databaseExists(ctx, connProvider, testDBName1), qt.IsFalse)
 	c.Assert(databaseExists(ctx, connProvider, testDBName2), qt.IsFalse)
@@ -146,7 +144,7 @@ func TestTemplateManagerConcurrentAccess(t *testing.T) {
 	}
 
 	// Collect results.
-	var testDBNames []string
+	testDBNames := make([]string, 0, numGoroutines)
 	for i := 0; i < numGoroutines; i++ {
 		select {
 		case name := <-results:
@@ -166,22 +164,25 @@ func TestTemplateManagerConcurrentAccess(t *testing.T) {
 	}
 
 	// Clean up concurrently.
+	cleanupResults := make(chan string, len(testDBNames))
+	cleanupErrors := make(chan error, len(testDBNames))
+
 	for _, dbName := range testDBNames {
 		go func(name string) {
 			err := tm.DropTestDatabase(ctx, name)
 			if err != nil {
-				errors <- err
+				cleanupErrors <- err
 				return
 			}
-			results <- name
+			cleanupResults <- name
 		}(dbName)
 	}
 
 	// Wait for cleanup completion.
 	for i := 0; i < len(testDBNames); i++ {
 		select {
-		case <-results:
-		case err := <-errors:
+		case <-cleanupResults:
+		case err := <-cleanupErrors:
 			c.Fatal(err)
 		case <-ctx.Done():
 			c.Fatal("timeout waiting for cleanup")
@@ -233,8 +234,6 @@ func TestTemplateManagerValidation(t *testing.T) {
 	}
 }
 
-// Helper functions and test utilities.
-
 // testConnectionStringFunc creates a connection string for the given database name.
 func testConnectionStringFunc(dbName string) string {
 	// Replace database name in connection string.
@@ -252,7 +251,7 @@ func testConnectionStringFunc(dbName string) string {
 }
 
 func setupTestConnectionProvider() pgdbtemplate.ConnectionProvider {
-	return &realConnectionProvider{connStringFunc: testConnectionStringFunc}
+	return pgdbtemplate.NewStandardConnectionProvider(testConnectionStringFunc)
 }
 
 func setupTestMigrationRunner(c *qt.C) pgdbtemplate.MigrationRunner {
@@ -260,16 +259,15 @@ func setupTestMigrationRunner(c *qt.C) pgdbtemplate.MigrationRunner {
 	tempDir := c.TempDir()
 
 	migration1 := `
-CREATE TABLE test_table (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-`
+	CREATE TABLE test_table (
+		id SERIAL PRIMARY KEY,
+		name VARCHAR(100) NOT NULL,
+		created_at TIMESTAMP DEFAULT NOW()
+	);`
 
 	migration2 := `
-INSERT INTO test_table (name) VALUES ('test_data_1'), ('test_data_2');
-`
+	INSERT INTO test_table (name)
+	VALUES ('test_data_1'), ('test_data_2');`
 
 	migration1Path := tempDir + "/001_create_table.sql"
 	migration2Path := tempDir + "/002_insert_data.sql"
@@ -290,19 +288,21 @@ func databaseExists(ctx context.Context, provider pgdbtemplate.ConnectionProvide
 	}
 	defer adminConn.Close()
 
-	var exists bool
-	query := "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)"
-	row := adminConn.QueryRowContext(ctx, query, dbName)
-	err = row.Scan(&exists)
-	return err == nil && exists
+	var exists int
+	query := "SELECT 1 FROM pg_database WHERE datname = $1 LIMIT 1"
+	err = adminConn.QueryRowContext(ctx, query, dbName).Scan(&exists)
+	return err == nil
 }
 
 func hasTestTable(ctx context.Context, conn pgdbtemplate.DatabaseConnection) bool {
-	var exists bool
-	query := "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'test_table')"
-	row := conn.QueryRowContext(ctx, query)
-	err := row.Scan(&exists)
-	return err == nil && exists
+	var exists int
+	query := `
+	SELECT 1
+	FROM information_schema.tables
+	WHERE table_name = 'test_table'
+	LIMIT 1`
+	err := conn.QueryRowContext(ctx, query).Scan(&exists)
+	return err == nil
 }
 
 func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.ConnectionProvider) []string {
@@ -312,7 +312,12 @@ func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.Connectio
 		c.Assert(adminConn.Close(), qt.IsNil)
 	}()
 
-	rows, err := adminConn.(*pgdbtemplate.StandardDatabaseConnection).Query("SELECT datname FROM pg_database WHERE datistemplate = false")
+	standardDBConn, ok := adminConn.(*pgdbtemplate.StandardDatabaseConnection)
+	c.Assert(ok, qt.IsTrue)
+
+	rows, err := standardDBConn.Query(
+		"SELECT datname FROM pg_database WHERE NOT datistemplate",
+	)
 	c.Assert(err, qt.IsNil)
 	defer func() {
 		c.Assert(rows.Close(), qt.IsNil)
@@ -323,12 +328,15 @@ func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.Connectio
 		var name string
 		err := rows.Scan(&name)
 		c.Assert(err, qt.IsNil)
+
 		databases = append(databases, name)
 	}
 	c.Assert(rows.Err(), qt.IsNil)
 
 	// Also include template databases for verification.
-	rows2, err := adminConn.(*pgdbtemplate.StandardDatabaseConnection).Query("SELECT datname FROM pg_database WHERE datistemplate = true")
+	rows2, err := standardDBConn.Query(
+		"SELECT datname FROM pg_database WHERE datistemplate",
+	)
 	c.Assert(err, qt.IsNil)
 	defer func() {
 		c.Assert(rows2.Close(), qt.IsNil)
@@ -338,6 +346,7 @@ func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.Connectio
 		var name string
 		err := rows2.Scan(&name)
 		c.Assert(err, qt.IsNil)
+
 		databases = append(databases, name)
 	}
 	c.Assert(rows.Err(), qt.IsNil)
@@ -345,40 +354,82 @@ func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.Connectio
 	return databases
 }
 
-// Mock implementations for testing.
-
+// mockConnectionProvider is a mock implementation of ConnectionProvider
+// for testing.
 type mockConnectionProvider struct {
 	connString string
 }
 
-func (m *mockConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
+// Connect implements pgdbtemplate.ConnectionProvider.Connect.
+func (*mockConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
 	return nil, nil
 }
 
+// GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
 func (m *mockConnectionProvider) GetConnectionString(databaseName string) string {
 	return m.connString
 }
 
-// realConnectionProvider creates actual database connections for testing.
-type realConnectionProvider struct {
-	connStringFunc func(string) string
-}
+// TestTemplateManagerErrors tests error conditions in template manager.
+func TestTemplateManagerErrors(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
 
-func (r *realConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
-	connString := r.connStringFunc(databaseName)
-	db, err := sql.Open("postgres", connString)
-	if err != nil {
-		return nil, err
-	}
+	c.Run("Non-PostgreSQL connection string", func(c *qt.C) {
+		provider := &mockConnectionProvider{connString: "mysql://localhost/test"}
 
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close() // Ignore close error since we're already in an error state
-		return nil, err
-	}
+		config := pgdbtemplate.Config{
+			ConnectionProvider: provider,
+		}
 
-	return &pgdbtemplate.StandardDatabaseConnection{DB: db}, nil
-}
+		_, err := pgdbtemplate.NewTemplateManager(config)
+		c.Assert(err, qt.ErrorMatches, ".*requires a PostgreSQL connection string.*")
+	})
 
-func (r *realConnectionProvider) GetConnectionString(databaseName string) string {
-	return r.connStringFunc(databaseName)
+	c.Run("Multiple PostgreSQL formats accepted", func(c *qt.C) {
+		testCases := []struct {
+			name       string
+			connString string
+			valid      bool
+		}{
+			{"postgres://", "postgres://localhost/test", true},
+			{"postgresql://", "postgresql://localhost/test", true},
+			{"mysql://", "mysql://localhost/test", false},
+			{"sqlite:", "sqlite:test.db", false},
+			{"empty", "", false},
+		}
+
+		for _, tc := range testCases {
+			c.Run(tc.name, func(c *qt.C) {
+				provider := &mockConnectionProvider{connString: tc.connString}
+				config := pgdbtemplate.Config{
+					ConnectionProvider: provider,
+				}
+
+				_, err := pgdbtemplate.NewTemplateManager(config)
+				c.Assert(err == nil, qt.Equals, tc.valid)
+			})
+		}
+	})
+
+	c.Run("Template name generation", func(c *qt.C) {
+		provider := &mockConnectionProvider{connString: "postgres://localhost/test"}
+
+		// Without template name - should auto-generate.
+		config1 := pgdbtemplate.Config{
+			ConnectionProvider: provider,
+		}
+		tm1, err := pgdbtemplate.NewTemplateManager(config1)
+		c.Assert(err, qt.IsNil)
+		c.Assert(tm1, qt.IsNotNil)
+
+		// With custom template name.
+		config2 := pgdbtemplate.Config{
+			ConnectionProvider: provider,
+			TemplateName:       "custom_template",
+		}
+		tm2, err := pgdbtemplate.NewTemplateManager(config2)
+		c.Assert(err, qt.IsNil)
+		c.Assert(tm2, qt.IsNotNil)
+	})
 }

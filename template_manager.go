@@ -13,14 +13,19 @@ import (
 	"github.com/lib/pq"
 )
 
+// defaultAdminDBName is the default administrative database name
+// per PostgreSQL conventions.
 const defaultAdminDBName = "postgres"
+
+// globalTemplateCounter is a global atomic counter for unique template names
+// across all template managers.
+var globalTemplateCounter int64
 
 // DatabaseConnection represents any PostgreSQL database connection that can
 // execute SQL.
 type DatabaseConnection interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-	PingContext(ctx context.Context) error
 	Close() error
 }
 
@@ -50,7 +55,7 @@ type TemplateManager struct {
 	mu          sync.Mutex
 	initialized bool
 
-	counter int64 // Atomic counter for unique database names.
+	counter int64 // Atomic counter for unique test database names.
 }
 
 // Config holds configuration for the template manager.
@@ -72,7 +77,7 @@ func NewTemplateManager(config Config) (*TemplateManager, error) {
 
 	templateName := config.TemplateName
 	if templateName == "" {
-		templateName = fmt.Sprintf("template_db_%d", time.Now().Unix())
+		templateName = fmt.Sprintf("template_db_%d_%d", time.Now().UnixNano(), atomic.AddInt64(&globalTemplateCounter, 1))
 	}
 
 	testPrefix := config.TestDBPrefix
@@ -164,9 +169,7 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 // DropTestDatabase drops a test database.
 func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) error {
 	// Connect to template database for DROP operations.
-	// This is preferred over admin database as it reduces dependency on admin
-	// permissions and the template database connection has the necessary
-	// privileges.
+	// This is preferred to follow the least privilege principle.
 	templateConn, err := tm.provider.Connect(ctx, tm.templateName)
 	if err != nil {
 		return fmt.Errorf("failed to connect to template database: %w", err)
@@ -250,6 +253,7 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 	}()
 
 	// Connect to template database and run migrations.
+	// We do not use admin database to follow the least privilege principle.
 	templateConn, err := tm.provider.Connect(ctx, tm.templateName)
 	if err != nil {
 		return fmt.Errorf("failed to connect to template database: %w", err)
