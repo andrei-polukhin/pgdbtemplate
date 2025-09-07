@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # Go modules.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    assignees:
+      - "andrei-polukhin"
+    commit-message:
+      prefix: "security"
+      prefix-development: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "security"
+
+  # GitHub Actions.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    assignees:
+      - "andrei-polukhin"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "github-actions"
+      - "security"
