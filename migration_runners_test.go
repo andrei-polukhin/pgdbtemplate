@@ -98,3 +98,83 @@ func setupTestDatabase(c *qt.C) *sql.DB {
 
 	return db
 }
+
+// TestFileMigrationRunnerErrors tests error conditions in migration runner.
+func TestFileMigrationRunnerErrors(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
+	ctx := context.Background()
+
+	c.Run("Invalid SQL causes error", func(c *qt.C) {
+		db := setupTestDatabase(c)
+		defer db.Close()
+		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
+
+		tempDir := c.TempDir()
+		invalidSQL := "THIS IS NOT VALID SQL;"
+		err := os.WriteFile(tempDir+"/001_invalid.sql", []byte(invalidSQL), 0644)
+		c.Assert(err, qt.IsNil)
+
+		runner := pgdbtemplate.NewFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
+		err = runner.RunMigrations(ctx, conn)
+		c.Assert(err, qt.IsNotNil)
+		c.Assert(err, qt.ErrorMatches, ".*failed to execute migration.*")
+	})
+
+	c.Run("Non-existent directory", func(c *qt.C) {
+		db := setupTestDatabase(c)
+		defer db.Close()
+		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
+
+		runner := pgdbtemplate.NewFileMigrationRunner([]string{"/non/existent/path"}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
+		err := runner.RunMigrations(ctx, conn)
+		c.Assert(err, qt.IsNotNil)
+		c.Assert(err, qt.ErrorMatches, ".*failed to collect files.*")
+	})
+
+	c.Run("Empty migration directory", func(c *qt.C) {
+		db := setupTestDatabase(c)
+		defer db.Close()
+		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
+
+		tempDir := c.TempDir()
+		runner := pgdbtemplate.NewFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
+		err := runner.RunMigrations(ctx, conn)
+		c.Assert(err, qt.IsNil) // Empty directory should not error.
+	})
+
+	c.Run("File read permission error", func(c *qt.C) {
+		db := setupTestDatabase(c)
+		defer db.Close()
+		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
+
+		tempDir := c.TempDir()
+		validSQL := "SELECT 1;"
+		filePath := tempDir + "/001_test.sql"
+		err := os.WriteFile(filePath, []byte(validSQL), 0644)
+		c.Assert(err, qt.IsNil)
+
+		// Make file unreadable.
+		err = os.Chmod(filePath, 0000)
+		c.Assert(err, qt.IsNil)
+		defer os.Chmod(filePath, 0644) // Restore permissions.
+
+		runner := pgdbtemplate.NewFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
+		err = runner.RunMigrations(ctx, conn)
+		c.Assert(err, qt.IsNotNil)
+	})
+}
+
+// TestNewFileMigrationRunnerBranches tests both branches of NewFileMigrationRunner.
+func TestNewFileMigrationRunnerBranches(t *testing.T) {
+	c := qt.New(t)
+
+	// Test with nil ordering function (should use default).
+	runner1 := pgdbtemplate.NewFileMigrationRunner([]string{"/tmp"}, nil)
+	c.Assert(runner1, qt.IsNotNil)
+
+	// Test with non-nil ordering function (should use provided).
+	customFunc := func(files []string) []string { return files }
+	runner2 := pgdbtemplate.NewFileMigrationRunner([]string{"/tmp"}, customFunc)
+	c.Assert(runner2, qt.IsNotNil)
+}

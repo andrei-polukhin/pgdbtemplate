@@ -13,7 +13,7 @@ import (
 type NoOpMigrationRunner struct{}
 
 // RunMigrations does nothing and returns nil.
-func (r *NoOpMigrationRunner) RunMigrations(ctx context.Context, conn DatabaseConnection) error {
+func (*NoOpMigrationRunner) RunMigrations(context.Context, DatabaseConnection) error {
 	return nil
 }
 
@@ -96,6 +96,7 @@ func (r *FileMigrationRunner) executeFile(ctx context.Context, conn DatabaseConn
 func AlphabeticalMigrationFilesSorting(files []string) []string {
 	sorted := make([]string, len(files))
 	copy(sorted, files)
+
 	sort.Strings(sorted)
 	return sorted
 }
