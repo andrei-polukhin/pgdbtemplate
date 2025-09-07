@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 )
 
@@ -21,11 +22,19 @@ const defaultAdminDBName = "postgres"
 // across all template managers.
 var globalTemplateCounter int64
 
-// DatabaseConnection represents any PostgreSQL database connection that can
-// execute SQL.
+// Row represents a database row result that can be scanned.
+type Row interface {
+	// Scan scans the row into the provided destination variables.
+	Scan(dest ...any) error
+}
+
+// DatabaseConnection represents any PostgreSQL database connection.
 type DatabaseConnection interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	// ExecContext executes a query with the given context and arguments.
+	ExecContext(ctx context.Context, query string, args ...any) (any, error)
+	// QueryRowContext executes a query that is expected to return a single row.
+	QueryRowContext(ctx context.Context, query string, args ...any) Row
+	// Close closes the database connection.
 	Close() error
 }
 
@@ -39,6 +48,7 @@ type ConnectionProvider interface {
 
 // MigrationRunner executes migrations on a PostgreSQL database connection.
 type MigrationRunner interface {
+	// RunMigrations runs all migrations on the provided connection.
 	RunMigrations(ctx context.Context, conn DatabaseConnection) error
 }
 
@@ -60,15 +70,36 @@ type TemplateManager struct {
 
 // Config holds configuration for the template manager.
 type Config struct {
+	// ConnectionProvider provides database connections.
+	// This field is required.
 	ConnectionProvider ConnectionProvider
-	MigrationRunner    MigrationRunner
-	TemplateName       string
-	TestDBPrefix       string
-	AdminDBName        string
+	// MigrationRunner runs migrations on the template database.
+	// This field is required.
+	MigrationRunner MigrationRunner
+	// TemplateName is the name of the template database.
+	// If empty, a unique name will be generated.
+	// This field is optional.
+	TemplateName string
+	// TestDBPrefix is the prefix for test database names.
+	// If empty, "test_" will be used.
+	// This field is optional.
+	TestDBPrefix string
+	// AdminDBName is the name of the administrative database to connect to
+	// for creating and dropping databases. If empty, "postgres" will be used.
+	// This field is optional.
+	AdminDBName string
 }
 
 // NewTemplateManager creates a new template manager and checks for PostgreSQL.
 func NewTemplateManager(config Config) (*TemplateManager, error) {
+	// Validate required fields.
+	if config.ConnectionProvider == nil {
+		return nil, fmt.Errorf("ConnectionProvider is required")
+	}
+	if config.MigrationRunner == nil {
+		return nil, fmt.Errorf("MigrationRunner is required")
+	}
+
 	// Check that the connection string is for PostgreSQL.
 	connStr := config.ConnectionProvider.GetConnectionString(defaultAdminDBName)
 	if !isPostgresConnectionString(connStr) {
@@ -231,7 +262,7 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 		// Template already exists, return early.
 		return nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, pgx.ErrNoRows) {
 		// Unexpected error.
 		return fmt.Errorf("failed to check if template exists: %w", err)
 	}
