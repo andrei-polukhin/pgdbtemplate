@@ -1,6 +1,7 @@
-# Contributing to pgdbtemplate
+# Contributing to `pgdbtemplate`
 
-We welcome contributions to pgdbtemplate! This document provides guidelines for contributing to the project.
+We welcome contributions to `pgdbtemplate`! This document provides guidelines
+for contributing to the project.
 
 ## Getting Started
 
@@ -148,23 +149,6 @@ Bad:
 - **Documentation**: Update README.md if the API changes
 - **Breaking changes**: Clearly mark any breaking changes
 
-## Code Architecture
-
-### Core Components
-
-- **TemplateManager**: Main orchestrator for template database management
-- **ConnectionProvider**: Abstraction for database connections
-- **MigrationRunner**: Interface for running database migrations
-- **DatabaseConnection**: Wrapper around database/sql connections
-
-### Design Principles
-
-- **PostgreSQL-specific**: Optimized for PostgreSQL features
-- **Thread-safe**: Safe for concurrent usage
-- **Interface-based**: Pluggable components via interfaces
-- **Context-aware**: All operations accept context.Context
-- **Error-transparent**: Clear error messages with context
-
 ## Issue Reporting
 
 ### Bug Reports
@@ -184,47 +168,16 @@ Include the following information:
 - Consider backward compatibility
 - Discuss implementation approaches if you have ideas
 
-## Code Review
-
-### Review Criteria
-
-Pull requests are reviewed for:
-- **Correctness**: Does the code work as intended?
-- **Tests**: Are there adequate tests?
-- **Performance**: Does it maintain or improve performance?
-- **API design**: Is the API consistent and usable?
-- **Documentation**: Are changes properly documented?
-- **Style**: Does it follow Go conventions?
-
-### Response Time
-
-- We aim to review pull requests within 48 hours
-- Complex changes may take longer
-- Feel free to ping maintainers if a PR has been waiting more than a week
-
-## Release Process
-
-Releases follow semantic versioning (semver):
-- **Major** (1.0.0): Breaking changes
-- **Minor** (0.1.0): New features, backward compatible
-- **Patch** (0.0.1): Bug fixes, backward compatible
-
 ## Getting Help
 
 - **GitHub Issues**: For bugs, feature requests, and questions
 - **Discussions**: For general questions and community interaction
 - **Code review**: For feedback on implementation approaches
 
-## Recognition
-
-Contributors are recognized in:
-- GitHub contributors list
-- Release notes for significant contributions
-- Special thanks for first-time contributors
-
 ## License
 
-By contributing to pgdbtemplate, you agree that your contributions will be licensed under the MIT License.
+By contributing to `pgdbtemplate`, you agree that your contributions
+will be licensed under the MIT License.
 
 ## Community Guidelines
 
@@ -234,4 +187,4 @@ By contributing to pgdbtemplate, you agree that your contributions will be licen
 - Focus on the code and ideas, not the person
 - Assume good intentions
 
-Thank you for contributing to pgdbtemplate! 🚀
+Thank you for contributing to `pgdbtemplate`! 🚀
