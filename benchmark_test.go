@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,30 +15,13 @@ import (
 	"github.com/andrei-polukhin/pgdbtemplate"
 )
 
-var (
-	benchConnString string
-)
-
-func init() {
-	benchConnString = os.Getenv("POSTGRES_CONNECTION_STRING")
-	if benchConnString == "" {
-		benchConnString = "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
-	}
-}
+// concurrentDBCounter is an atomic counter used to generate unique database names
+// in concurrent benchmark tests to prevent name collisions between goroutines.
+var concurrentDBCounter int64
 
 // benchConnectionStringFunc creates a connection string for the given database name.
 func benchConnectionStringFunc(dbName string) string {
-	parts := strings.Split(benchConnString, "/")
-	if len(parts) > 3 {
-		parts[3] = strings.Split(parts[3], "?")[0] // Remove query params.
-		parts[3] = dbName
-	}
-	result := strings.Join(parts, "/")
-	if strings.Contains(benchConnString, "?") {
-		queryStart := strings.Index(benchConnString, "?")
-		result += benchConnString[queryStart:]
-	}
-	return result
+	return pgdbtemplate.ReplaceDatabaseInConnectionString(testConnectionString, dbName)
 }
 
 // createSampleMigrations creates a set of realistic migrations for benchmarking.
@@ -192,7 +175,7 @@ func benchmarkTraditionalDatabaseCreation(b *testing.B, numTables int) {
 		dbName := fmt.Sprintf("bench_traditional_%d_%d", i, time.Now().UnixNano())
 
 		// Create database.
-		adminDB, err := sql.Open("postgres", benchConnString)
+		adminDB, err := sql.Open("postgres", testConnectionString)
 		c.Assert(err, qt.IsNil)
 
 		_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName))
@@ -210,7 +193,7 @@ func benchmarkTraditionalDatabaseCreation(b *testing.B, numTables int) {
 		c.Assert(testDB.Close(), qt.IsNil)
 
 		// Cleanup.
-		adminDB, err = sql.Open("postgres", benchConnString)
+		adminDB, err = sql.Open("postgres", testConnectionString)
 		c.Assert(err, qt.IsNil)
 		_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
 		c.Assert(err, qt.IsNil)
@@ -238,7 +221,7 @@ func benchmarkTemplateDatabaseCreation(b *testing.B, numTables int) {
 		ConnectionProvider: connProvider,
 		MigrationRunner:    migrationRunner,
 		TemplateName:       templateName,
-		TestDBPrefix:       fmt.Sprintf("bench_test_%d_", time.Now().UnixNano()),
+		TestDBPrefix:       fmt.Sprintf("bench_test_%d_%d", time.Now().UnixNano(), os.Getpid()),
 	}
 
 	tm, err := pgdbtemplate.NewTemplateManager(config)
@@ -310,13 +293,14 @@ func BenchmarkConcurrentDatabaseCreation_Traditional(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		c := qt.New(b)
-		i := 0
 		for pb.Next() {
-			dbName := fmt.Sprintf("bench_trad_concurrent_%d_%d_%d", i, time.Now().UnixNano(), os.Getpid())
-			i++
+			// Use atomic counter + timestamp + process ID for uniqueness.
+			counter := atomic.AddInt64(&concurrentDBCounter, 1)
+			timestamp := time.Now().UnixNano()
+			dbName := fmt.Sprintf("bench_trad_conc_%d_%d_%d", counter, timestamp, os.Getpid())
 
 			// Create database.
-			adminDB, err := sql.Open("postgres", benchConnString)
+			adminDB, err := sql.Open("postgres", testConnectionString)
 			c.Assert(err, qt.IsNil)
 
 			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName))
@@ -333,7 +317,7 @@ func BenchmarkConcurrentDatabaseCreation_Traditional(b *testing.B) {
 			c.Assert(err, qt.IsNil)
 
 			// Cleanup.
-			adminDB, err = sql.Open("postgres", benchConnString)
+			adminDB, err = sql.Open("postgres", testConnectionString)
 			c.Assert(err, qt.IsNil)
 			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
 			c.Assert(err, qt.IsNil)
@@ -467,7 +451,7 @@ func benchmarkTraditionalSequential(b *testing.B, numDBs int) {
 		dbName := fmt.Sprintf("bench_seq_trad_%d_%d_%d", i, time.Now().UnixNano(), os.Getpid())
 
 		// Create database.
-		adminDB, err := sql.Open("postgres", benchConnString)
+		adminDB, err := sql.Open("postgres", testConnectionString)
 		c.Assert(err, qt.IsNil)
 
 		_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName))
@@ -484,7 +468,7 @@ func benchmarkTraditionalSequential(b *testing.B, numDBs int) {
 		c.Assert(testDB.Close(), qt.IsNil)
 
 		// Cleanup.
-		adminDB, err = sql.Open("postgres", benchConnString)
+		adminDB, err = sql.Open("postgres", testConnectionString)
 		c.Assert(err, qt.IsNil)
 		_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
 		c.Assert(err, qt.IsNil)
