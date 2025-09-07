@@ -45,7 +45,6 @@ func TestCreateTestDatabaseCleanupOnConnectionFailure(t *testing.T) {
 		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
 		TemplateName:       "cleanup_template_test",
 		TestDBPrefix:       "test_cleanup_",
-		AdminDBName:        "postgres",
 	}
 
 	tm, err := pgdbtemplate.NewTemplateManager(config)
@@ -72,7 +71,7 @@ func TestCreateTestDatabaseCleanupOnConnectionFailure(t *testing.T) {
 	checkQuery := "SELECT COUNT(*) FROM pg_database WHERE datname LIKE $1"
 	err = adminConn.QueryRowContext(ctx, checkQuery, "test_cleanup_%").Scan(&count)
 	c.Assert(err, qt.IsNil)
-	c.Assert(count, qt.Equals, 0, qt.Commentf("Expected 0 test databases, but found %d - cleanup failed", count))
+	c.Assert(count, qt.Equals, 0)
 
 	// Cleanup template.
 	err = tm.Cleanup(ctx)
@@ -99,8 +98,6 @@ func TestCreateTemplateDatabaseCleanupOnConnectionFailure(t *testing.T) {
 		ConnectionProvider: failingProvider,
 		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
 		TemplateName:       templateName,
-		TestDBPrefix:       "test_",
-		AdminDBName:        "postgres",
 	}
 
 	tm, err := pgdbtemplate.NewTemplateManager(config)
@@ -122,7 +119,7 @@ func TestCreateTemplateDatabaseCleanupOnConnectionFailure(t *testing.T) {
 	var exists bool
 	checkQuery := "SELECT TRUE FROM pg_database WHERE datname = $1"
 	err = adminConn.QueryRowContext(ctx, checkQuery, templateName).Scan(&exists)
-	c.Assert(err, qt.ErrorIs, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed initialization"))
+	c.Assert(err, qt.ErrorIs, sql.ErrNoRows)
 }
 
 // TestCreateTemplateDatabaseCleanupOnMigrationFailure tests that a template
@@ -144,8 +141,6 @@ func TestCreateTemplateDatabaseCleanupOnMigrationFailure(t *testing.T) {
 		ConnectionProvider: connProvider,
 		MigrationRunner:    failingMigrator,
 		TemplateName:       templateName,
-		TestDBPrefix:       "test_",
-		AdminDBName:        "postgres",
 	}
 
 	tm, err := pgdbtemplate.NewTemplateManager(config)
@@ -167,7 +162,7 @@ func TestCreateTemplateDatabaseCleanupOnMigrationFailure(t *testing.T) {
 	var exists bool
 	checkQuery := "SELECT TRUE FROM pg_database WHERE datname = $1"
 	err = adminConn.QueryRowContext(ctx, checkQuery, templateName).Scan(&exists)
-	c.Assert(err, qt.ErrorIs, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed migration"))
+	c.Assert(err, qt.ErrorIs, sql.ErrNoRows)
 }
 
 // TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure tests that a template
@@ -200,8 +195,6 @@ func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure(t *testing.T) {
 		ConnectionProvider: failingProvider,
 		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
 		TemplateName:       templateName,
-		TestDBPrefix:       "test_",
-		AdminDBName:        "postgres",
 	}
 
 	tm, err := pgdbtemplate.NewTemplateManager(config)
@@ -223,7 +216,7 @@ func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure(t *testing.T) {
 	var exists bool
 	checkQuery := "SELECT TRUE FROM pg_database WHERE datname = $1"
 	err = adminConn.QueryRowContext(ctx, checkQuery, templateName).Scan(&exists)
-	c.Assert(err, qt.ErrorIs, sql.ErrNoRows, qt.Commentf("Template database should not exist after failed mark template"))
+	c.Assert(err, qt.ErrorIs, sql.ErrNoRows)
 }
 
 // Helper function to create a test connection provider for testing.
@@ -239,6 +232,7 @@ type testDatabaseConnectionFailProvider struct {
 	failPattern  string
 }
 
+// Connect implements pgdbtemplate.ConnectionProvider.Connect.
 func (p *testDatabaseConnectionFailProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
 	// Allow admin database and template database to work.
 	if databaseName == p.adminDBName || databaseName == p.templateName {
@@ -254,6 +248,7 @@ func (p *testDatabaseConnectionFailProvider) Connect(ctx context.Context, databa
 	return createRealConnectionProvider().Connect(ctx, databaseName)
 }
 
+// GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
 func (p *testDatabaseConnectionFailProvider) GetConnectionString(databaseName string) string {
 	return testConnectionStringFunc(databaseName)
 }
@@ -265,6 +260,7 @@ type templateConnectionFailProvider struct {
 	templateName string
 }
 
+// Connect implements pgdbtemplate.ConnectionProvider.Connect.
 func (p *templateConnectionFailProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
 	if databaseName == p.templateName {
 		return nil, fmt.Errorf("intentional connection failure for template database: %s", databaseName)
@@ -284,6 +280,7 @@ type markTemplateFailProvider struct {
 	adminDBName string
 }
 
+// Connect implements pgdbtemplate.ConnectionProvider.Connect.
 func (p *markTemplateFailProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
 	realConn, err := createRealConnectionProvider().Connect(ctx, databaseName)
 	if err != nil {
@@ -298,6 +295,7 @@ func (p *markTemplateFailProvider) Connect(ctx context.Context, databaseName str
 	return realConn, nil
 }
 
+// GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
 func (p *markTemplateFailProvider) GetConnectionString(databaseName string) string {
 	return testConnectionStringFunc(databaseName)
 }
@@ -309,6 +307,7 @@ type markTemplateFailConnection struct {
 	queryCount int
 }
 
+// ExecContext implements pgdbtemplate.DatabaseConnection.ExecContext.
 func (c *markTemplateFailConnection) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	// Look for ALTER DATABASE statements with is_template TRUE.
 	if strings.Contains(query, "ALTER DATABASE") && strings.Contains(query, "is_template TRUE") {
@@ -322,6 +321,7 @@ type failingMigrationRunner struct {
 	errorMsg string
 }
 
+// RunMigrations implements pgdbtemplate.MigrationRunner.RunMigrations.
 func (r *failingMigrationRunner) RunMigrations(ctx context.Context, conn pgdbtemplate.DatabaseConnection) error {
 	return fmt.Errorf(r.errorMsg)
 }
