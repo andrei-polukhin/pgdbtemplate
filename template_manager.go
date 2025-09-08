@@ -389,7 +389,7 @@ func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context) (err
 		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
 		_, err = adminConn.ExecContext(ctx, dropQuery)
 		if err != nil {
-			errs = errors.Join(errs, err)
+			errs = errors.Join(errs, fmt.Errorf("failed to drop database %s: %w", dbName, err))
 			continue // Continue cleaning up other databases.
 		}
 
