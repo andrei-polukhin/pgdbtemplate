@@ -195,7 +195,7 @@ func benchmarkTraditionalDatabaseCreation(b *testing.B, numTables int) {
 		// Cleanup.
 		adminDB, err = sql.Open("postgres", testConnectionString)
 		c.Assert(err, qt.IsNil)
-		_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
+		_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s", dbName))
 		c.Assert(err, qt.IsNil)
 		c.Assert(adminDB.Close(), qt.IsNil)
 	}
@@ -319,7 +319,7 @@ func BenchmarkConcurrentDatabaseCreation_Traditional(b *testing.B) {
 			// Cleanup.
 			adminDB, err = sql.Open("postgres", testConnectionString)
 			c.Assert(err, qt.IsNil)
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s", dbName))
 			c.Assert(err, qt.IsNil)
 			c.Assert(adminDB.Close(), qt.IsNil)
 		}
@@ -411,6 +411,129 @@ func BenchmarkTemplateInitialization(b *testing.B) {
 	}
 }
 
+// BenchmarkComprehensiveCleanup measures the performance of cleaning up multiple test databases.
+func BenchmarkComprehensiveCleanup(b *testing.B) {
+	scales := []int{5, 10, 20, 50}
+
+	for _, numDBs := range scales {
+		b.Run(fmt.Sprintf("Template_%dDBs", numDBs), func(b *testing.B) {
+			benchmarkTemplateComprehensiveCleanup(b, numDBs)
+		})
+
+		b.Run(fmt.Sprintf("Traditional_%dDBs", numDBs), func(b *testing.B) {
+			benchmarkTraditionalBulkCleanup(b, numDBs)
+		})
+	}
+}
+
+func benchmarkTemplateComprehensiveCleanup(b *testing.B, numDBs int) {
+	c := qt.New(b)
+	ctx := context.Background()
+	tempDir := b.TempDir()
+
+	err := createSampleMigrations(tempDir, 3)
+	c.Assert(err, qt.IsNil)
+
+	connProvider := pgdbtemplate.NewStandardConnectionProvider(benchConnectionStringFunc)
+	migrationRunner := pgdbtemplate.NewFileMigrationRunner(
+		[]string{tempDir},
+		pgdbtemplate.AlphabeticalMigrationFilesSorting,
+	)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		templateName := fmt.Sprintf("bench_cleanup_%d_%d_%d", i, numDBs, time.Now().UnixNano())
+		config := pgdbtemplate.Config{
+			ConnectionProvider: connProvider,
+			MigrationRunner:    migrationRunner,
+			TemplateName:       templateName,
+			TestDBPrefix:       fmt.Sprintf("bench_cleanup_test_%d_%d_", i, numDBs),
+		}
+
+		tm, err := pgdbtemplate.NewTemplateManager(config)
+		c.Assert(err, qt.IsNil)
+
+		// Initialize template (not measured).
+		b.StopTimer()
+		err = tm.Initialize(ctx)
+		c.Assert(err, qt.IsNil)
+
+		// Create multiple test databases.
+		var testConns []pgdbtemplate.DatabaseConnection
+		for j := 0; j < numDBs; j++ {
+			testConn, _, err := tm.CreateTestDatabase(ctx)
+			c.Assert(err, qt.IsNil)
+			testConns = append(testConns, testConn)
+		}
+
+		// Close all connections before cleanup.
+		for _, conn := range testConns {
+			c.Assert(conn.Close(), qt.IsNil)
+		}
+		b.StartTimer()
+
+		// Measure comprehensive cleanup performance.
+		err = tm.Cleanup(ctx)
+		c.Assert(err, qt.IsNil)
+	}
+}
+
+func benchmarkTraditionalBulkCleanup(b *testing.B, numDBs int) {
+	c := qt.New(b)
+	ctx := context.Background()
+	tempDir := b.TempDir()
+
+	err := createSampleMigrations(tempDir, 3)
+	c.Assert(err, qt.IsNil)
+
+	migrationRunner := pgdbtemplate.NewFileMigrationRunner(
+		[]string{tempDir},
+		pgdbtemplate.AlphabeticalMigrationFilesSorting,
+	)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		var dbNames []string
+
+		// Create multiple databases with migrations (not measured).
+		b.StopTimer()
+		for j := 0; j < numDBs; j++ {
+			dbName := fmt.Sprintf("bench_bulk_trad_%d_%d_%d_%d", i, j, time.Now().UnixNano(), os.Getpid())
+			dbNames = append(dbNames, dbName)
+
+			// Create database.
+			adminDB, err := sql.Open("postgres", testConnectionString)
+			c.Assert(err, qt.IsNil)
+
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName))
+			c.Assert(err, qt.IsNil)
+			c.Assert(adminDB.Close(), qt.IsNil)
+
+			// Connect and run migrations.
+			testDB, err := sql.Open("postgres", benchConnectionStringFunc(dbName))
+			c.Assert(err, qt.IsNil)
+
+			conn := &pgdbtemplate.StandardDatabaseConnection{DB: testDB}
+			err = migrationRunner.RunMigrations(ctx, conn)
+			c.Assert(err, qt.IsNil)
+			c.Assert(testDB.Close(), qt.IsNil)
+		}
+		b.StartTimer()
+
+		// Measure bulk cleanup performance.
+		adminDB, err := sql.Open("postgres", testConnectionString)
+		c.Assert(err, qt.IsNil)
+
+		for _, dbName := range dbNames {
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s", dbName))
+			c.Assert(err, qt.IsNil)
+		}
+		c.Assert(adminDB.Close(), qt.IsNil)
+	}
+}
+
 // BenchmarkScalingComparison_Sequential runs sequential database creation comparisons.
 func BenchmarkScalingComparison_Sequential(b *testing.B) {
 	scales := []int{1, 5, 10, 20}
@@ -470,7 +593,7 @@ func benchmarkTraditionalSequential(b *testing.B, numDBs int) {
 		// Cleanup.
 		adminDB, err = sql.Open("postgres", testConnectionString)
 		c.Assert(err, qt.IsNil)
-		_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
+		_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s", dbName))
 		c.Assert(err, qt.IsNil)
 		c.Assert(adminDB.Close(), qt.IsNil)
 	}
@@ -527,4 +650,149 @@ func benchmarkTemplateSequential(b *testing.B, numDBs int) {
 	b.StopTimer()
 	elapsed := time.Since(start)
 	b.ReportMetric(float64(elapsed.Nanoseconds())/float64(numDBs), "ns/db")
+}
+
+// BenchmarkRealisticTestSuite simulates a realistic test suite workflow.
+func BenchmarkRealisticTestSuite(b *testing.B) {
+	testScenarios := []struct {
+		name     string
+		numTests int
+		tables   int
+	}{
+		{"SmallSuite_5Tests_3Tables", 5, 3},
+		{"MediumSuite_15Tests_3Tables", 15, 3},
+		{"LargeSuite_30Tests_5Tables", 30, 5},
+	}
+
+	for _, scenario := range testScenarios {
+		b.Run(fmt.Sprintf("Template_%s", scenario.name), func(b *testing.B) {
+			benchmarkRealisticTemplateWorkflow(b, scenario.numTests, scenario.tables)
+		})
+
+		b.Run(fmt.Sprintf("Traditional_%s", scenario.name), func(b *testing.B) {
+			benchmarkRealisticTraditionalWorkflow(b, scenario.numTests, scenario.tables)
+		})
+	}
+}
+
+func benchmarkRealisticTemplateWorkflow(b *testing.B, numTests, numTables int) {
+	c := qt.New(b)
+	ctx := context.Background()
+	tempDir := b.TempDir()
+
+	err := createSampleMigrations(tempDir, numTables)
+	c.Assert(err, qt.IsNil)
+
+	connProvider := pgdbtemplate.NewStandardConnectionProvider(benchConnectionStringFunc)
+	migrationRunner := pgdbtemplate.NewFileMigrationRunner(
+		[]string{tempDir},
+		pgdbtemplate.AlphabeticalMigrationFilesSorting,
+	)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		templateName := fmt.Sprintf("bench_realistic_%d_%d_%d", i, numTests, time.Now().UnixNano())
+		config := pgdbtemplate.Config{
+			ConnectionProvider: connProvider,
+			MigrationRunner:    migrationRunner,
+			TemplateName:       templateName,
+			TestDBPrefix:       fmt.Sprintf("bench_real_test_%d_", i),
+		}
+
+		tm, err := pgdbtemplate.NewTemplateManager(config)
+		c.Assert(err, qt.IsNil)
+
+		// Template initialization (one-time setup cost).
+		err = tm.Initialize(ctx)
+		c.Assert(err, qt.IsNil)
+
+		// Simulate running multiple tests (each creates and uses a database).
+		var testConns []pgdbtemplate.DatabaseConnection
+		for j := 0; j < numTests; j++ {
+			testConn, _, err := tm.CreateTestDatabase(ctx)
+			c.Assert(err, qt.IsNil)
+
+			// Simulate some database work (minimal for benchmarking).
+			var count int
+			err = testConn.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+			c.Assert(err, qt.IsNil)
+
+			testConns = append(testConns, testConn)
+		}
+
+		// Close all connections.
+		for _, conn := range testConns {
+			c.Assert(conn.Close(), qt.IsNil)
+		}
+
+		// Comprehensive cleanup (removes all test databases + template).
+		err = tm.Cleanup(ctx)
+		c.Assert(err, qt.IsNil)
+	}
+}
+
+func benchmarkRealisticTraditionalWorkflow(b *testing.B, numTests, numTables int) {
+	c := qt.New(b)
+	ctx := context.Background()
+	tempDir := b.TempDir()
+
+	err := createSampleMigrations(tempDir, numTables)
+	c.Assert(err, qt.IsNil)
+
+	migrationRunner := pgdbtemplate.NewFileMigrationRunner(
+		[]string{tempDir},
+		pgdbtemplate.AlphabeticalMigrationFilesSorting,
+	)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		var dbNames []string
+		var testConns []*sql.DB
+
+		// Simulate running multiple tests (each creates database + runs migrations).
+		for j := 0; j < numTests; j++ {
+			dbName := fmt.Sprintf("bench_real_trad_%d_%d_%d_%d", i, j, time.Now().UnixNano(), os.Getpid())
+			dbNames = append(dbNames, dbName)
+
+			// Create database.
+			adminDB, err := sql.Open("postgres", testConnectionString)
+			c.Assert(err, qt.IsNil)
+
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName))
+			c.Assert(err, qt.IsNil)
+			c.Assert(adminDB.Close(), qt.IsNil)
+
+			// Connect and run migrations.
+			testDB, err := sql.Open("postgres", benchConnectionStringFunc(dbName))
+			c.Assert(err, qt.IsNil)
+
+			conn := &pgdbtemplate.StandardDatabaseConnection{DB: testDB}
+			err = migrationRunner.RunMigrations(ctx, conn)
+			c.Assert(err, qt.IsNil)
+
+			// Simulate some database work.
+			var count int
+			err = testDB.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+			c.Assert(err, qt.IsNil)
+
+			testConns = append(testConns, testDB)
+		}
+
+		// Close all connections.
+		for _, conn := range testConns {
+			c.Assert(conn.Close(), qt.IsNil)
+		}
+
+		// Bulk cleanup (similar to what our Cleanup() does).
+		adminDB, err := sql.Open("postgres", testConnectionString)
+		c.Assert(err, qt.IsNil)
+
+		for _, dbName := range dbNames {
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s", dbName))
+			c.Assert(err, qt.IsNil)
+		}
+		c.Assert(adminDB.Close(), qt.IsNil)
+	}
 }

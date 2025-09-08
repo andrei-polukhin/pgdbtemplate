@@ -7,8 +7,8 @@ template databases for lightning-fast test execution.
 
 ## Features
 
-- **🚀 Lightning-fast test databases** - 1.3-1.5x faster than traditional approach,
-  constant ~29ms performance
+- **🚀 Lightning-fast test databases** - 1.6x faster than traditional approach,
+  constant ~28ms performance
 - **🔒 Thread-safe** concurrent test database management
 - **📊 Scales with complexity** - performance advantage increases with schema complexity
 - **🎯 PostgreSQL-specific** with connection string validation
@@ -401,25 +401,25 @@ Using template databases provides significant performance improvements over
 traditional database creation and migration:
 
 ### Real Benchmark Results (Apple M4 Pro)
-- **Traditional approach**: ~30-44ms per database (scales with schema complexity)
-- **Template approach**: **~29ms per database** (consistent regardless of complexity)
-- **Performance gain increases with schema complexity**: 1.04x → 1.33x → 1.52x faster
-- **Superior concurrency**: Thread-safe operations vs. traditional approach failures
-- **Memory efficient**: 18% less memory usage per operation
+- **Traditional approach**: ~28-45ms per database (scales with schema complexity)
+- **Template approach**: **~28ms per database** (consistent regardless of complexity)
+- **Performance gain increases with schema complexity**: 1.09x → 1.20x → 1.59x faster
+- **Superior concurrency**: Thread-safe operations with 78 ops/sec vs 69 ops/sec traditional
+- **Memory efficient**: 17% less memory usage per operation
 
 ### Schema Complexity Impact
 | Schema Size | Traditional | Template | Performance Gain |
 |-------------|-------------|----------|------------------|
-| 1 Table     | ~30ms      | ~29ms    | **1.04x faster** |
-| 3 Tables    | ~39ms      | ~29ms    | **1.33x faster** |
-| 5 Tables    | ~44ms      | ~29ms    | **1.52x faster** |
+| 1 Table     | ~28ms      | ~26ms    | **1.09x faster** |
+| 3 Tables    | ~34ms      | ~28ms    | **1.20x faster** |
+| 5 Tables    | ~45ms      | ~28ms    | **1.59x faster** |
 
 ### Scaling Benefits  
 | Test Databases | Traditional | Template | Time Saved |
 |---|---|---|---|
-| 10 DBs | 450ms | 356ms | **21% faster** |
-| 50 DBs | 2.25s | 1.60s | **29% faster** |
-| 200 DBs | 9.0s | 6.2s | **31% faster** |
+| 10 DBs | 466ms | 311ms | **33% faster** |
+| 50 DBs | 2.23s | 1.56s | **30% faster** |
+| 200 DBs | 8.92s | 6.24s | **30% faster** |
 
 For comprehensive benchmark analysis, methodology, and detailed results,
 see **[BENCHMARKS.md](docs/BENCHMARKS.md)**.

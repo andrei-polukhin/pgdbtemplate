@@ -14,27 +14,37 @@ echo ""
 # Run benchmarks.
 echo "🔄 Running Core Performance Comparison..."
 echo "----------------------------------------"
-go test -bench="BenchmarkDatabaseCreation_.*_5Tables" -benchmem -count=3
+go test -run=^$ -bench="BenchmarkDatabaseCreation_.*_5Tables" -benchmem -count=3
 
 echo ""
 echo "🔄 Running Schema Complexity Analysis..."
 echo "---------------------------------------"
-go test -bench="BenchmarkDatabaseCreation_.*Table" -benchmem -count=1
+go test -run=^$ -bench="BenchmarkDatabaseCreation_.*Table" -benchmem -count=1
 
 echo ""
 echo "🔄 Running Scaling Analysis..."
 echo "------------------------------"
-go test -bench="BenchmarkScalingComparison_Sequential" -benchmem -timeout 10m
+go test -run=^$ -bench="BenchmarkScalingComparison_Sequential" -benchmem -timeout 10m
 
 echo ""
 echo "🔄 Running Template Initialization Benchmark..."
 echo "-----------------------------------------------"
-go test -bench="BenchmarkTemplateInitialization" -benchmem -count=3
+go test -run=^$ -bench="BenchmarkTemplateInitialization" -benchmem -count=3
 
 echo ""
 echo "🔄 Running Concurrent Performance Test..."
 echo "-----------------------------------------"
-go test -bench="BenchmarkConcurrentDatabaseCreation_Template" -benchmem -count=3
+go test -run=^$ -bench="BenchmarkConcurrentDatabaseCreation" -benchmem -count=3
+
+echo ""
+echo "🔄 Running Comprehensive Cleanup Benchmarks..."
+echo "----------------------------------------------"
+go test -run=^$ -bench="BenchmarkComprehensiveCleanup" -benchmem -count=1
+
+echo ""
+echo "🔄 Running Realistic Test Suite Benchmarks..."
+echo "--------------------------------------------"
+go test -run=^$ -bench="BenchmarkRealisticTestSuite" -benchmem -count=1
 
 echo ""
 echo "✅ All benchmarks completed successfully!"

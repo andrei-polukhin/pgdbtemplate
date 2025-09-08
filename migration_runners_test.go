@@ -34,7 +34,7 @@ func TestFileMigrationRunner(t *testing.T) {
 
 	// Ensure cleanup of any tables created during test.
 	defer func() {
-		_, err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+		_, err := db.Exec(fmt.Sprintf("DROP TABLE %s", tableName))
 		c.Assert(err, qt.IsNil)
 	}()
 
