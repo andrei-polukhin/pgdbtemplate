@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -193,10 +192,13 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 			return
 		}
 		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
-		adminConn.ExecContext(ctx, dropQuery) // #nosec G104 -- Cleanup errors are intentionally ignored.
+		_, dropErr := adminConn.ExecContext(ctx, dropQuery)
 
-		// Also remove from tracking in case it was added before failure.
-		tm.createdTestDBs.Delete(dbName)
+		// Also remove from tracking only if cleanup succeeded.
+		if dropErr == nil {
+			tm.createdTestDBs.Delete(dbName)
+		}
+		err = errors.Join(err, dropErr)
 	}()
 
 	// Connect to the new test database.
@@ -245,7 +247,7 @@ func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) 
 }
 
 // Cleanup removes all tracked test databases and the template database.
-func (tm *TemplateManager) Cleanup(ctx context.Context) error {
+func (tm *TemplateManager) Cleanup(ctx context.Context) (errs error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
@@ -254,19 +256,19 @@ func (tm *TemplateManager) Cleanup(ctx context.Context) error {
 	}
 
 	// First, clean up all tracked test databases.
+	// Any errors are collected and returned after attempting to drop the template.
 	if err := tm.cleanupTrackedTestDatabases(ctx); err != nil {
-		// Log the error but continue to drop the template database.
-		// We want to make a best-effort attempt to clean up everything.
-		log.Printf("warning: failed to clean up tracked test databases: %v", err)
+		errs = fmt.Errorf("warning: failed to clean up tracked test databases: %w", err)
 	}
 
 	// Drop template database.
+	// Any errors are appended to errs.
 	if err := tm.dropTemplateDatabase(ctx); err != nil {
-		return fmt.Errorf("failed to drop template database: %w", err)
+		errs = errors.Join(errs, fmt.Errorf("failed to drop template database: %w", err))
 	}
 
 	tm.initialized = false
-	return nil
+	return errs
 }
 
 // createTemplateDatabase creates and initializes the template database.
@@ -304,7 +306,8 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 		}
 
 		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(tm.templateName))
-		adminConn.ExecContext(ctx, dropQuery) // #nosec G104 -- Cleanup errors are intentionally ignored.
+		_, dropErr := adminConn.ExecContext(ctx, dropQuery)
+		err = errors.Join(err, dropErr)
 	}()
 
 	// Connect to template database and run migrations.
@@ -352,7 +355,7 @@ func (tm *TemplateManager) dropTemplateDatabase(ctx context.Context) error {
 }
 
 // cleanupTrackedTestDatabases removes all test databases tracked by this manager.
-func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context) error {
+func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context) (errs error) {
 	// Collect all tracked database names to avoid modifying map
 	// during iteration.
 	var dbNames []string
@@ -374,26 +377,26 @@ func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context) erro
 	defer adminConn.Close()
 
 	// Batch terminate active connections for all databases at once.
+	// Connections might already be closed, so we append the error,
+	// but continue with cleanup.
 	if err := tm.batchTerminateConnections(ctx, adminConn, dbNames); err != nil {
-		// Log error but continue with cleanup - connections might already be closed.
-		log.Printf("warning: failed to terminate connections for some databases: %v", err)
+		errs = fmt.Errorf("failed to terminate connections for some databases: %w", err)
 	}
 
 	// Drop all databases individually.
 	// PostgreSQL doesn't allow DROP DATABASE in transactions/batches.
-	var lastError error
 	for _, dbName := range dbNames {
 		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
 		_, err = adminConn.ExecContext(ctx, dropQuery)
 		if err != nil {
-			lastError = err
+			errs = errors.Join(errs, err)
 			continue // Continue cleaning up other databases.
 		}
 
-		// Remove from tracking map.
+		// Remove from tracking map only if drop was successful.
 		tm.createdTestDBs.Delete(dbName)
 	}
-	return lastError
+	return errs
 }
 
 // batchTerminateConnections terminates active connections for multiple databases
