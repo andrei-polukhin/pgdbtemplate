@@ -7,8 +7,8 @@ template databases for lightning-fast test execution.
 
 ## Features
 
-- **🚀 Lightning-fast test databases** - 1.6x faster than traditional approach,
-  constant ~28ms performance
+- **🚀 Lightning-fast test databases** - 1.2-1.6x faster than traditional approach,
+  constant ~28–32ms performance
 - **🔒 Thread-safe** concurrent test database management
 - **📊 Scales with complexity** - performance advantage increases with schema complexity
 - **🎯 PostgreSQL-specific** with connection string validation
@@ -401,25 +401,26 @@ Using template databases provides significant performance improvements over
 traditional database creation and migration:
 
 ### Real Benchmark Results (Apple M4 Pro)
-- **Traditional approach**: ~28-45ms per database (scales with schema complexity)
-- **Template approach**: **~28ms per database** (consistent regardless of complexity)
-- **Performance gain increases with schema complexity**: 1.09x → 1.20x → 1.59x faster
-- **Superior concurrency**: Thread-safe operations with 78 ops/sec vs 69 ops/sec traditional
+- **Traditional approach**: ~28.9–43.1ms per database (scales with schema complexity)
+- **Template approach**: **~28.2–28.8ms per database** (consistent regardless of complexity)
+- **Performance gain increases with schema complexity**: 1.03x → 1.43x → 1.50x faster
+- **Superior concurrency**: Thread-safe operations with ~86.5 ops/sec vs ~78.5 ops/sec traditional
 - **Memory efficient**: 17% less memory usage per operation
 
 ### Schema Complexity Impact
 | Schema Size | Traditional | Template | Performance Gain |
 |-------------|-------------|----------|------------------|
-| 1 Table     | ~28ms      | ~26ms    | **1.09x faster** |
-| 3 Tables    | ~34ms      | ~28ms    | **1.20x faster** |
-| 5 Tables    | ~45ms      | ~28ms    | **1.59x faster** |
+| 1 Table     | ~28.9ms    | ~28.2ms  | **1.03x faster** |
+| 3 Tables    | ~39.5ms    | ~27.6ms  | **1.43x faster** |
+| 5 Tables    | ~43.1ms    | ~28.8ms  | **1.50x faster** |
 
 ### Scaling Benefits  
 | Test Databases | Traditional | Template | Time Saved |
 |---|---|---|---|
-| 10 DBs | 466ms | 311ms | **33% faster** |
-| 50 DBs | 2.23s | 1.56s | **30% faster** |
-| 200 DBs | 8.92s | 6.24s | **30% faster** |
+| 20 DBs | 906.8ms (45.3ms/db) | 613.8ms (29.4ms/db) | **32% faster** |
+| 50 DBs | 2.29s (45.8ms/db) | 1.53s (29.8ms/db) | **33% faster** |
+| 200 DBs | 9.21s (46.0ms/db) | 5.84s (29.2ms/db) | **37% faster** |
+| 500 DBs | 22.31s (44.6ms/db) | 14.82s (29.6ms/db) | **34% faster** |
 
 For comprehensive benchmark analysis, methodology, and detailed results,
 see **[BENCHMARKS.md](docs/BENCHMARKS.md)**.

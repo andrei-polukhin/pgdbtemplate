@@ -117,7 +117,7 @@ func TestPgxConnectionProvider(t *testing.T) {
 
 		provider := pgdbtemplate.NewPgxConnectionProvider(
 			testConnectionStringFuncPgx,
-			pgdbtemplate.WithPgxPoolConfig(poolConfig),
+			pgdbtemplate.WithPgxPoolConfig(*poolConfig),
 		)
 		defer provider.Close()
 

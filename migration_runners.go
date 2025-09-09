@@ -63,25 +63,24 @@ func (r *FileMigrationRunner) RunMigrations(ctx context.Context, conn DatabaseCo
 }
 
 func (r *FileMigrationRunner) collectSQLFiles(path string) ([]string, error) {
-	var files []string
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory %q: %w", path, err)
+	}
 
-	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			files = append(files, filepath.Join(path, entry.Name()))
 		}
-
-		if !info.IsDir() && strings.HasSuffix(filePath, ".sql") {
-			files = append(files, filePath)
-		}
-		return nil
-	})
-	return files, err
+	}
+	return files, nil
 }
 
 func (r *FileMigrationRunner) executeFile(ctx context.Context, conn DatabaseConnection, filePath string) error {
 	content, err := os.ReadFile(filePath) // #nosec G304 -- Migration files are controlled by the application.
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read migration file %q: %w", filePath, err)
 	}
 
 	_, err = conn.ExecContext(ctx, string(content))
