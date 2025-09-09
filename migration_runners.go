@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -87,16 +86,4 @@ func (r *FileMigrationRunner) executeFile(ctx context.Context, conn DatabaseConn
 
 	_, err = conn.ExecContext(ctx, string(content))
 	return err
-}
-
-// AlphabeticalMigrationFilesSorting makes a copy of the provided slice
-// and sorts migration files alphabetically in the copied slice.
-//
-// The original slice is not modified.
-func AlphabeticalMigrationFilesSorting(files []string) []string {
-	sorted := make([]string, len(files))
-	copy(sorted, files)
-
-	sort.Strings(sorted)
-	return sorted
 }

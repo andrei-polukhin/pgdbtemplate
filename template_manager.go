@@ -78,22 +78,25 @@ type TemplateManager struct {
 // Config holds configuration for the template manager.
 type Config struct {
 	// ConnectionProvider provides database connections.
+	//
 	// This field is required.
 	ConnectionProvider ConnectionProvider
 	// MigrationRunner runs migrations on the template database.
+	//
 	// This field is required.
 	MigrationRunner MigrationRunner
 	// TemplateName is the name of the template database.
+	//
 	// If empty, a unique name will be generated.
-	// This field is optional.
 	TemplateName string
 	// TestDBPrefix is the prefix for test database names.
+	//
 	// If empty, "test_" will be used.
-	// This field is optional.
 	TestDBPrefix string
 	// AdminDBName is the name of the administrative database to connect to
-	// for creating and dropping databases. If empty, "postgres" will be used.
-	// This field is optional.
+	// for creating and dropping databases.
+	//
+	// If empty, "postgres" will be used.
 	AdminDBName string
 }
 
@@ -138,8 +141,15 @@ func NewTemplateManager(config Config) (*TemplateManager, error) {
 }
 
 // isPostgresConnectionString checks if the connection string is for PostgreSQL.
+//
+// This function validates both URL and DSN formats, but rejects empty strings.
 func isPostgresConnectionString(connStr string) bool {
-	return strings.HasPrefix(connStr, "postgres://") || strings.HasPrefix(connStr, "postgresql://")
+	if strings.TrimSpace(connStr) == "" {
+		return false
+	}
+
+	_, err := pgx.ParseConfig(connStr)
+	return err == nil
 }
 
 // Initialize sets up the template database with all migrations.
@@ -165,9 +175,11 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 		return nil, "", err
 	}
 
-	dbName := fmt.Sprintf("%s%d_%d", tm.testPrefix, time.Now().UnixNano(), atomic.AddInt64(&globalTestDBCounter, 1))
+	var dbName string
 	if len(testDBName) > 0 && testDBName[0] != "" {
 		dbName = testDBName[0]
+	} else {
+		dbName = fmt.Sprintf("%s%d_%d", tm.testPrefix, time.Now().UnixNano(), atomic.AddInt64(&globalTestDBCounter, 1))
 	}
 
 	// Connect to admin database for CREATE DATABASE operations.
@@ -318,11 +330,9 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 	}
 	defer templateConn.Close()
 
-	// Run migrations if migrator is provided.
-	if tm.migrator != nil {
-		if err := tm.migrator.RunMigrations(ctx, templateConn); err != nil {
-			return fmt.Errorf("failed to run migrations on template: %w", err)
-		}
+	// Run migrations.
+	if err := tm.migrator.RunMigrations(ctx, templateConn); err != nil {
+		return fmt.Errorf("failed to run migrations on template: %w", err)
 	}
 
 	// Mark database as template.
@@ -389,7 +399,7 @@ func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context) (err
 		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
 		_, err = adminConn.ExecContext(ctx, dropQuery)
 		if err != nil {
-			errs = errors.Join(errs, fmt.Errorf("failed to drop database %s: %w", dbName, err))
+			errs = errors.Join(errs, fmt.Errorf("failed to drop database %q: %w", dbName, err))
 			continue // Continue cleaning up other databases.
 		}
 
