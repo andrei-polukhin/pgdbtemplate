@@ -18,6 +18,7 @@ func TestStandardConnectionProvider(t *testing.T) {
 	ctx := context.Background()
 
 	c.Run("Basic connection string generation", func(c *qt.C) {
+		c.Parallel()
 		connStringFunc := func(dbName string) string {
 			return "postgres://localhost/" + dbName
 		}
@@ -31,6 +32,7 @@ func TestStandardConnectionProvider(t *testing.T) {
 	})
 
 	c.Run("Connection provider with options", func(c *qt.C) {
+		c.Parallel()
 		connStringFunc := func(dbName string) string {
 			return "postgres://localhost/" + dbName
 		}
@@ -43,9 +45,6 @@ func TestStandardConnectionProvider(t *testing.T) {
 			pgdbtemplate.WithConnMaxLifetime(time.Hour),
 			pgdbtemplate.WithConnMaxIdleTime(30*time.Minute),
 		)
-
-		// Verify the provider was created successfully.
-		c.Assert(provider, qt.IsNotNil)
 
 		// Test connection string generation.
 		connStr := provider.GetConnectionString("testdb")
@@ -110,7 +109,7 @@ func TestStandardConnectionProvider(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		_, err := provider.Connect(ctx, "testdb")
+		_, err := provider.Connect(ctx, "postgres")
 		c.Assert(err, qt.IsNotNil)
 	})
 }

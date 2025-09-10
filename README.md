@@ -1,15 +1,18 @@
 # pgdbtemplate
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/andrei-polukhin/pgdbtemplate.svg)](https://pkg.go.dev/github.com/andrei-polukhin/pgdbtemplate)
+[![CI](https://github.com/andrei-polukhin/pgdbtemplate/actions/workflows/test.yml/badge.svg)](https://github.com/andrei-polukhin/pgdbtemplate/actions/workflows/test.yml)
+[![Coverage](https://codecov.io/gh/andrei-polukhin/pgdbtemplate/branch/main/graph/badge.svg)](https://codecov.io/gh/andrei-polukhin/pgdbtemplate)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/andrei-polukhin/pgdbtemplate/blob/main/LICENSE)
 
 A high-performance Go library for creating PostgreSQL test databases using
 template databases for lightning-fast test execution.
 
 ## Features
 
-- **🚀 Lightning-fast test databases** - 1.2-1.6x faster than traditional approach,
-  constant ~28–32ms performance
-- **🔒 Thread-safe** concurrent test database management
+- **🚀 Lightning-fast test databases** - 1.2-1.6x faster than traditional approach
+  of running migrations every time, scales to 500 databases, ~17% less memory usage
+- **🔒 Thread-safe** - concurrent test database management
 - **📊 Scales with complexity** - performance advantage increases with schema complexity
 - **🎯 PostgreSQL-specific** with connection string validation
 - **⚡ Multiple drivers** - supports both `database/sql` and `pgx` drivers

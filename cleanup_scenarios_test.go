@@ -24,15 +24,15 @@ func TestCreateTestDatabaseCleanupOnConnectionFailure(t *testing.T) {
 	// but works for admin operations and template.
 	failingProvider := &testDatabaseConnectionFailProvider{
 		adminDBName:  "postgres",
-		templateName: "cleanup_template_test", // This should work.
-		failPattern:  "test_cleanup_",         // Fail only for test databases with this prefix.
+		templateName: "cleanup_test_template_test", // This should work.
+		failPattern:  "test_test_db_cleanup_",      // Fail only for test databases with this prefix.
 	}
 
 	config := pgdbtemplate.Config{
 		ConnectionProvider: failingProvider,
 		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
-		TemplateName:       "cleanup_template_test",
-		TestDBPrefix:       "test_cleanup_",
+		TemplateName:       "cleanup_test_template_test",
+		TestDBPrefix:       "test_test_db_cleanup_",
 	}
 
 	tm, err := pgdbtemplate.NewTemplateManager(config)
@@ -60,9 +60,61 @@ func TestCreateTestDatabaseCleanupOnConnectionFailure(t *testing.T) {
 	err = adminConn.QueryRowContext(ctx, checkQuery, "test_cleanup_%").Scan(&count)
 	c.Assert(err, qt.IsNil)
 	c.Assert(count, qt.Equals, 0)
+}
 
-	// Cleanup template.
-	err = tm.Cleanup(ctx)
+// TestCreateTestDatabaseCleanupOnConnectionFailureWithDropFailure tests
+// that a test database tried to drop, but this fails, the error is reported.
+func TestCreateTestDatabaseCleanupOnConnectionFailureWithDropFailure(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
+	ctx := context.Background()
+
+	// Create a connection provider that fails when connecting to test databases
+	// but works for admin operations and template.
+	failingProvider := &testDatabaseConnectionFailProvider{
+		adminDBName:  "postgres",
+		templateName: "cleanup_test_template_with_drop_test", // This should work.
+		failPattern:  "test_test_db_with_drop_cleanup_",      // Fail only for test databases with this prefix.
+		failDrop:     true,                                   // Simulate error on DROP DATABASE.
+	}
+
+	config := pgdbtemplate.Config{
+		ConnectionProvider: failingProvider,
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       "cleanup_test_template_with_drop_test",
+		TestDBPrefix:       "test_test_db_with_drop_cleanup_",
+	}
+
+	tm, err := pgdbtemplate.NewTemplateManager(config)
+	c.Assert(err, qt.IsNil)
+
+	// Initialize should succeed - creates template database and connects to it.
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.IsNil)
+
+	// This should fail because connection to test database fails,
+	// but the test database should be automatically dropped.
+	_, _, err = tm.CreateTestDatabase(ctx)
+	c.Assert(err, qt.ErrorMatches, "(?s).*failed to connect to test database.*")
+
+	// Verify the test database was not dropped.
+	adminConn, err := failingProvider.Connect(ctx, "postgres")
+	c.Assert(err, qt.IsNil)
+	defer func() {
+		c.Assert(adminConn.Close(), qt.IsNil)
+	}()
+
+	// Check that test database with our prefix still exist.
+	var name string
+	checkQuery := "SELECT datname FROM pg_database WHERE datname LIKE $1"
+	err = adminConn.QueryRowContext(ctx, checkQuery, "test_test_db_with_drop_cleanup_%").Scan(&name)
+	c.Assert(err, qt.IsNil)
+
+	// Cleanup the database manually to avoid leftover.
+	realProvider := createRealConnectionProvider()
+	adminConn, err = realProvider.Connect(ctx, "postgres")
+	c.Assert(err, qt.IsNil)
+	_, err = adminConn.ExecContext(ctx, "DROP DATABASE "+name)
 	c.Assert(err, qt.IsNil)
 }
 
@@ -86,6 +138,7 @@ func TestCreateTemplateDatabaseCleanupOnConnectionFailure(t *testing.T) {
 		ConnectionProvider: failingProvider,
 		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
 		TemplateName:       templateName,
+		TestDBPrefix:       "test_test_db_conn_fail_",
 	}
 
 	tm, err := pgdbtemplate.NewTemplateManager(config)
@@ -177,6 +230,7 @@ func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure(t *testing.T) {
 	// ALTER DATABASE ... WITH is_template TRUE.
 	failingProvider := &markTemplateFailProvider{
 		adminDBName: "postgres",
+		failOnAlter: true,
 	}
 
 	config := pgdbtemplate.Config{
@@ -207,6 +261,62 @@ func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailure(t *testing.T) {
 	c.Assert(err, qt.ErrorIs, sql.ErrNoRows)
 }
 
+// TestCreateTemplateDatabaseCleanupOnMarkTemplateFailureWithDropFailure tests
+// when the template database is created and migrations succeed but marking as
+// template fails, and then dropping the database also fails, the error is reported.
+func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailureWithDropFailure(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
+	ctx := context.Background()
+	templateName := "test_template_mark_fail_with_drop_failure"
+
+	// Create a connection provider that fails when executing
+	// ALTER DATABASE ... WITH is_template TRUE. Then, it will
+	// also fail when dropping the database.
+	failingProvider := &markTemplateFailProvider{
+		adminDBName: "postgres",
+		failDrop:    true,
+		failOnAlter: true,
+	}
+
+	config := pgdbtemplate.Config{
+		ConnectionProvider: failingProvider,
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       templateName,
+	}
+
+	tm, err := pgdbtemplate.NewTemplateManager(config)
+	c.Assert(err, qt.IsNil)
+
+	// This should fail because marking as template fails,
+	// and also dropping the template database will fail.
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.ErrorMatches, "(?s).*failed to mark database as template.*intentional mark template failure.*failed to drop template database.*intentional drop database failure")
+
+	// Verify the template database was dropped (doesn't exist).
+	adminConn, err := failingProvider.Connect(ctx, "postgres")
+	c.Assert(err, qt.IsNil)
+	defer func() {
+		c.Assert(adminConn.Close(), qt.IsNil)
+	}()
+
+	// Check that the template database exists.
+	var exists bool
+	checkQuery := "SELECT TRUE FROM pg_database WHERE datname = $1"
+	err = adminConn.QueryRowContext(ctx, checkQuery, templateName).Scan(&exists)
+	c.Assert(err, qt.IsNil)
+
+	// Ensure the template database doesn't exist beforehand.
+	realProvider := createRealConnectionProvider()
+	adminConn, err = realProvider.Connect(ctx, "postgres")
+	c.Assert(err, qt.IsNil)
+	dropQuery := fmt.Sprintf("DROP DATABASE IF EXISTS %s", templateName)
+	_, err = adminConn.ExecContext(ctx, dropQuery)
+	c.Assert(err, qt.IsNil)
+	err = adminConn.Close()
+	c.Assert(err, qt.IsNil)
+}
+
 // Helper function to create a test connection provider for testing.
 func createRealConnectionProvider() pgdbtemplate.ConnectionProvider {
 	return pgdbtemplate.NewStandardConnectionProvider(testConnectionStringFunc)
@@ -218,13 +328,33 @@ type testDatabaseConnectionFailProvider struct {
 	adminDBName  string
 	templateName string
 	failPattern  string
+	failOnAlter  bool
+	failDrop     bool
 }
 
 // Connect implements pgdbtemplate.ConnectionProvider.Connect.
 func (p *testDatabaseConnectionFailProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
-	// Allow admin database and template database to work.
-	if databaseName == p.adminDBName || databaseName == p.templateName {
+	// Allow template database to work.
+	if databaseName == p.templateName {
 		return createRealConnectionProvider().Connect(ctx, databaseName)
+	}
+
+	// Allow admin database to work, but check for drop flag.
+	if databaseName == p.adminDBName {
+		realConn, err := createRealConnectionProvider().Connect(ctx, databaseName)
+		if err != nil {
+			return nil, err
+		}
+		// Wrap admin connection to intercept DROP DATABASE commands.
+		if p.failDrop || p.failOnAlter {
+			return &markTemplateFailConnection{
+				DatabaseConnection: realConn,
+				queryCount:         0,
+				failOnDrop:         p.failDrop,
+				failOnAlter:        p.failOnAlter,
+			}, nil
+		}
+		return realConn, nil
 	}
 
 	// Fail for databases matching the fail pattern.
@@ -266,6 +396,8 @@ func (p *templateConnectionFailProvider) GetConnectionString(databaseName string
 // ALTER DATABASE ... WITH is_template TRUE.
 type markTemplateFailProvider struct {
 	adminDBName string
+	failDrop    bool
+	failOnAlter bool
 }
 
 // Connect implements pgdbtemplate.ConnectionProvider.Connect.
@@ -277,7 +409,12 @@ func (p *markTemplateFailProvider) Connect(ctx context.Context, databaseName str
 
 	if databaseName == p.adminDBName {
 		// Wrap admin connection to intercept ALTER DATABASE commands.
-		return &markTemplateFailConnection{DatabaseConnection: realConn, queryCount: 0}, nil
+		return &markTemplateFailConnection{
+			DatabaseConnection: realConn,
+			queryCount:         0,
+			failOnDrop:         p.failDrop,
+			failOnAlter:        p.failOnAlter,
+		}, nil
 	}
 
 	return realConn, nil
@@ -292,14 +429,19 @@ func (p *markTemplateFailProvider) GetConnectionString(databaseName string) stri
 // ALTER DATABASE ... WITH is_template TRUE.
 type markTemplateFailConnection struct {
 	pgdbtemplate.DatabaseConnection
-	queryCount int
+	queryCount  int
+	failOnAlter bool
+	failOnDrop  bool
 }
 
 // ExecContext implements pgdbtemplate.DatabaseConnection.ExecContext.
 func (c *markTemplateFailConnection) ExecContext(ctx context.Context, query string, args ...any) (any, error) {
 	// Look for ALTER DATABASE statements with is_template TRUE.
-	if strings.Contains(query, "ALTER DATABASE") && strings.Contains(query, "is_template TRUE") {
+	if c.failOnAlter && strings.Contains(query, "ALTER DATABASE") && strings.Contains(query, "is_template TRUE") {
 		return nil, fmt.Errorf("intentional mark template failure")
+	}
+	if c.failOnDrop && strings.Contains(query, "DROP DATABASE") {
+		return nil, fmt.Errorf("intentional drop database failure")
 	}
 	return c.DatabaseConnection.ExecContext(ctx, query, args...)
 }

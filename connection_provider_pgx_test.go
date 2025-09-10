@@ -24,6 +24,7 @@ func TestPgxConnectionProvider(t *testing.T) {
 	ctx := context.Background()
 
 	c.Run("Basic pgx connection", func(c *qt.C) {
+		c.Parallel()
 		provider := pgdbtemplate.NewPgxConnectionProvider(testConnectionStringFuncPgx)
 		defer provider.Close()
 
@@ -40,6 +41,7 @@ func TestPgxConnectionProvider(t *testing.T) {
 	})
 
 	c.Run("Pgx connection with pool options", func(c *qt.C) {
+		c.Parallel()
 		provider := pgdbtemplate.NewPgxConnectionProvider(
 			testConnectionStringFuncPgx,
 			pgdbtemplate.WithPgxMaxConns(5),
@@ -60,27 +62,12 @@ func TestPgxConnectionProvider(t *testing.T) {
 	})
 
 	c.Run("MinConns option alone", func(c *qt.C) {
+		c.Parallel()
 		// Test WithPgxMinConns when poolConfig is initially nil.
 		provider := pgdbtemplate.NewPgxConnectionProvider(
 			testConnectionStringFuncPgx,
 			pgdbtemplate.WithPgxMinConns(2),
 		)
-		defer provider.Close()
-
-		conn, err := provider.Connect(ctx, "postgres")
-		c.Assert(err, qt.IsNil)
-		defer func() { c.Assert(conn.Close(), qt.IsNil) }()
-
-		// Verify the connection works.
-		var value int
-		row := conn.QueryRowContext(ctx, "SELECT 1")
-		err = row.Scan(&value)
-		c.Assert(err, qt.IsNil)
-		c.Assert(value, qt.Equals, 1)
-	})
-
-	c.Run("Connection string handling", func(c *qt.C) {
-		provider := pgdbtemplate.NewPgxConnectionProvider(testConnectionStringFuncPgx)
 		defer provider.Close()
 
 		conn, err := provider.Connect(ctx, "postgres")
@@ -108,6 +95,7 @@ func TestPgxConnectionProvider(t *testing.T) {
 	})
 
 	c.Run("Custom pool configuration", func(c *qt.C) {
+		c.Parallel()
 		// Create a custom pool config.
 		baseConnString := testConnectionStringFuncPgx("postgres")
 		poolConfig, err := pgxpool.ParseConfig(baseConnString)
@@ -141,13 +129,12 @@ func TestPgxConnectionProvider(t *testing.T) {
 		provider := pgdbtemplate.NewPgxConnectionProvider(invalidConnStringFunc)
 		defer provider.Close()
 
-		conn, err := provider.Connect(ctx, "testdb")
-		c.Assert(err, qt.IsNotNil)
-		c.Assert(conn, qt.IsNil)
+		_, err := provider.Connect(ctx, "testdb")
 		c.Assert(err, qt.ErrorMatches, "failed to parse connection string:.*")
 	})
 
 	c.Run("Connection to nonexistent database", func(c *qt.C) {
+		c.Parallel()
 		nonExistentFunc := func(dbName string) string {
 			return pgdbtemplate.ReplaceDatabaseInConnectionString(testConnectionString, "nonexistent_db_12345")
 		}
@@ -161,6 +148,7 @@ func TestPgxConnectionProvider(t *testing.T) {
 	})
 
 	c.Run("Pool reuse", func(c *qt.C) {
+		c.Parallel()
 		provider := pgdbtemplate.NewPgxConnectionProvider(testConnectionStringFuncPgx)
 		defer provider.Close()
 
@@ -184,6 +172,50 @@ func TestPgxConnectionProvider(t *testing.T) {
 		err = row.Scan(&value)
 		c.Assert(err, qt.IsNil)
 		c.Assert(value, qt.Equals, 2)
+	})
+
+	c.Run("Concurrent pool double-check", func(c *qt.C) {
+		c.Parallel()
+		provider := pgdbtemplate.NewPgxConnectionProvider(testConnectionStringFuncPgx)
+		defer provider.Close()
+
+		ctx := context.Background()
+		dbName := "postgres"
+
+		start := make(chan struct{})
+		results := make(chan error, 2)
+		openPoolConn := func() {
+			<-start // Wait for the signal to start.
+			conn, err := provider.Connect(ctx, dbName)
+			if conn != nil {
+				defer conn.Close()
+			}
+			results <- err
+		}
+		go openPoolConn()
+		go openPoolConn()
+
+		// Signal both goroutines to start simultaneously.
+		close(start)
+
+		// Wait for both goroutines to finish.
+		// Both should succeed without error.
+		// This tests the double-check locking in GetPool.
+		for i := 0; i < 2; i++ {
+			err := <-results
+			c.Assert(err, qt.IsNil)
+		}
+	})
+
+	c.Run("Wrong MaxConns handling", func(c *qt.C) {
+		provider := pgdbtemplate.NewPgxConnectionProvider(
+			testConnectionStringFuncPgx,
+			pgdbtemplate.WithPgxMaxConns(-1), // Pool will not be created.
+		)
+		defer provider.Close()
+
+		_, err := provider.Connect(ctx, "postgres")
+		c.Assert(err, qt.ErrorMatches, "failed to create connection pool:.*")
 	})
 }
 
