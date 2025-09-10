@@ -536,7 +536,7 @@ func benchmarkTraditionalBulkCleanup(b *testing.B, numDBs int) {
 
 // BenchmarkScalingComparison_Sequential runs sequential database creation comparisons.
 func BenchmarkScalingComparison_Sequential(b *testing.B) {
-	scales := []int{1, 5, 10, 20}
+	scales := []int{1, 5, 10, 20, 50, 200}
 
 	for _, scale := range scales {
 		b.Run(fmt.Sprintf("Traditional_%dDBs", scale), func(b *testing.B) {

@@ -11,7 +11,7 @@ import (
 // PgxConnectionProvider implements ConnectionProvider using pgx driver with connection pooling.
 type PgxConnectionProvider struct {
 	connectionStringFunc func(string) string
-	poolConfig           *pgxpool.Config
+	poolConfig           pgxpool.Config
 
 	mu    sync.RWMutex
 	pools map[string]*pgxpool.Pool
@@ -54,36 +54,21 @@ func (p *PgxConnectionProvider) Connect(ctx context.Context, databaseName string
 		return &PgxDatabaseConnection{Pool: pool}, nil
 	}
 
-	var config *pgxpool.Config
-	var err error
-
-	if p.poolConfig != nil {
-		// Parse connection string first.
-		config, err = pgxpool.ParseConfig(connString)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse connection string: %w", err)
-		}
-
-		// Apply pool configuration settings from the base config.
-		if p.poolConfig.MaxConns != 0 {
-			config.MaxConns = p.poolConfig.MaxConns
-		}
-		if p.poolConfig.MinConns != 0 {
-			config.MinConns = p.poolConfig.MinConns
-		}
-		if p.poolConfig.MaxConnLifetime != 0 {
-			config.MaxConnLifetime = p.poolConfig.MaxConnLifetime
-		}
-		if p.poolConfig.MaxConnIdleTime != 0 {
-			config.MaxConnIdleTime = p.poolConfig.MaxConnIdleTime
-		}
-	} else {
-		// Parse connection string directly.
-		config, err = pgxpool.ParseConfig(connString)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse connection string: %w", err)
-		}
+	// Parse connection string first.
+	config, err := pgxpool.ParseConfig(connString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
+
+	// Apply pool configuration settings if provided.
+	// MaxConns must be checked (pgx validates >= 1).
+	if p.poolConfig.MaxConns != 0 {
+		config.MaxConns = p.poolConfig.MaxConns
+	}
+	// These could be set directly (0 is safe).
+	config.MinConns = p.poolConfig.MinConns
+	config.MaxConnLifetime = p.poolConfig.MaxConnLifetime
+	config.MaxConnIdleTime = p.poolConfig.MaxConnIdleTime
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
@@ -127,7 +112,8 @@ func (c *PgxDatabaseConnection) ExecContext(ctx context.Context, query string, a
 }
 
 // QueryRowContext implements DatabaseConnection.QueryRowContext.
-// pgx.Row naturally implements the Row interface (it has Scan method).
+//
+// The returned pgx.Row naturally implements the Row interface.
 func (c *PgxDatabaseConnection) QueryRowContext(ctx context.Context, query string, args ...any) Row {
 	return c.Pool.QueryRow(ctx, query, args...)
 }

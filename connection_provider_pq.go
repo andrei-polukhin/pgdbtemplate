@@ -3,6 +3,7 @@ package pgdbtemplate
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	_ "github.com/lib/pq"
 )
@@ -47,7 +48,7 @@ func (p *StandardConnectionProvider) Connect(ctx context.Context, databaseName s
 	connString := p.connStringFunc(databaseName)
 	db, err := sql.Open("postgres", connString)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	// Apply connection options.
@@ -57,7 +58,7 @@ func (p *StandardConnectionProvider) Connect(ctx context.Context, databaseName s
 
 	if err := db.PingContext(ctx); err != nil {
 		db.Close() // #nosec G104 -- Close error in error path is not critical.
-		return nil, err
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 	return &StandardDatabaseConnection{DB: db}, nil
 }

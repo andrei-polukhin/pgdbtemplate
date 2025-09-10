@@ -27,8 +27,8 @@ The benchmarks use a realistic schema with:
 
 | Approach | 1 Table | 3 Tables | 5 Tables | Scaling Behavior |
 |----------|---------|----------|----------|------------------|
-| **Traditional** | ~28ms | ~34ms | ~45ms | **Increases with complexity** |
-| **Template** | ~26ms | ~28ms | ~28ms | **🚀 Consistent performance** |
+| **Traditional** | ~28.9ms | ~39.5ms | ~43.1ms | **Increases with complexity** |
+| **Template** | ~28.2ms | ~27.6ms | ~28.8ms | **🚀 Consistent performance** |
 
 **Key Insight**: Template approach maintains constant performance regardless of
 schema complexity, while traditional approach scales linearly
@@ -39,9 +39,9 @@ with the number of tables and migrations.
 The performance difference becomes more pronounced as schema complexity increases:
 
 **Performance Gain by Schema Size**:
-- 1 Table: Template is **1.09x faster** (26ms vs 28ms)
-- 3 Tables: Template is **1.20x faster** (28ms vs 34ms)  
-- 5 Tables: Template is **1.59x faster** (28ms vs 45ms)
+- 1 Table: Template is **1.03x faster** (28.2ms vs 28.9ms)
+- 3 Tables: Template is **1.43x faster** (27.6ms vs 39.5ms)  
+- 5 Tables: Template is **1.50x faster** (28.8ms vs 43.1ms)
 
 **Why Templates Scale Better**:
 - Traditional approach: Each table, index, and constraint
@@ -55,17 +55,20 @@ The performance difference becomes more pronounced as schema complexity increase
 
 | Number of Databases | Traditional | Template | Improvement |
 |---------------------|-------------|----------|-------------|
-| 1 DB | 44.3ms | 46.9ms | **0.94x (single DB overhead)** |
-| 5 DBs | 225.2ms (45.0ms/db) | 170.8ms (34.2ms/db) | **🚀 1.32x faster** |
-| 10 DBs | 460.1ms (46.0ms/db) | 300.7ms (30.1ms/db) | **🚀 1.53x faster** |
-| 20 DBs | 796.8ms (39.8ms/db) | 598.7ms (29.9ms/db) | **🚀 1.33x faster** |
+| 1 DB | 44.0ms | 45.9ms | **0.96x faster** |
+| 5 DBs | 229.3ms (44.9ms/db) | 168.2ms (32.9ms/db) | **🚀 1.36x faster** |
+| 10 DBs | 451.1ms (45.0ms/db) | 316.7ms (31.3ms/db) | **🚀 1.43x faster** |
+| 20 DBs | 906.8ms (45.3ms/db) | 613.8ms (29.4ms/db) | **🚀 1.48x faster** |
+| 50 DBs | 2.29s (45.8ms/db) | 1.53s (29.8ms/db) | **🚀 1.50x faster** |
+| 200 DBs | 9.21s (46.0ms/db) | 5.84s (29.2ms/db) | **🚀 1.58x faster** |
+| 500 DBs | 22.31s (44.6ms/db) | 14.82s (29.6ms/db) | **🚀 1.51x faster** |
 
 ### Concurrent Performance
 
 | Approach | Operations/sec | Concurrent Safety |
 |----------|----------------|-------------------|
-| **Traditional** | ~69 ops/sec | ✅ Good concurrency |
-| **Template** | **~78 ops/sec** | ✅ Thread-safe |
+| **Traditional** | ~78.5 ops/sec | ✅ Good concurrency |
+| **Template** | **~86.5 ops/sec** | ✅ Thread-safe |
 
 ## Detailed Analysis
 
@@ -85,13 +88,13 @@ The template approach shows **32-58% performance improvement** at scale:
 
 ### 3. **Memory Efficiency**
 
-- **Template approach**: ~89KB memory usage per operation
-- **Traditional approach**: ~108KB memory usage per operation  
+- **Template approach**: ~88–93KB memory usage per operation
+- **Traditional approach**: ~105–106KB memory usage per operation  
 - **17% less memory** usage with templates
 
 ### 4. **One-Time Initialization Cost**
 
-Template initialization (one-time setup): **~45ms**
+Template initialization (one-time setup): **~47ms**
 - This is a **one-time cost** regardless of how many test databases you create
 - **Break-even point**: After creating just **2 databases**, you've recovered
   the initialization cost
@@ -110,19 +113,19 @@ Recent optimizations to the cleanup process show significant improvements:
 ### Typical Test Suite Scenarios
 
 #### Small Test Suite (10 test databases)
-- **Traditional**: 10 × 39.8ms = **398ms**
-- **Template**: 45ms (init) + 10 × 29.9ms = **344ms**  
-- **Savings**: **54ms (14% faster)**
+- **Traditional**: 10 × 44.2ms = **442ms**
+- **Template**: 47ms (init) + 10 × 31.2ms = **359ms**  
+- **Savings**: **83ms (19% faster)**
 
 #### Medium Test Suite (50 test databases)
-- **Traditional**: 50 × 39.8ms = **1.99 seconds**
-- **Template**: 45ms (init) + 50 × 29.9ms = **1.540 seconds**  
-- **Savings**: **450ms (23% faster)**
+- **Traditional**: 50 × 43.8ms = **2.19 seconds**
+- **Template**: 47ms (init) + 50 × 30.8ms = **1.587 seconds**  
+- **Savings**: **603ms (28% faster)**
 
 #### Large Test Suite (200 test databases)
-- **Traditional**: 200 × 39.8ms = **7.96 seconds**
-- **Template**: 45ms (init) + 200 × 29.9ms = **6.025 seconds**  
-- **Savings**: **1.935 seconds (24% faster)**
+- **Traditional**: 200 × 43.8ms = **8.76 seconds**
+- **Template**: 47ms (init) + 200 × 30.8ms = **6.207 seconds**  
+- **Savings**: **2.553 seconds (29% faster)**
 
 ### Enterprise CI/CD Benefits
 

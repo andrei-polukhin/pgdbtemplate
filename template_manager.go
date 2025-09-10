@@ -209,8 +209,14 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 		// Also remove from tracking only if cleanup succeeded.
 		if dropErr == nil {
 			tm.createdTestDBs.Delete(dbName)
+			return
 		}
-		err = errors.Join(err, dropErr)
+		// Append drop error to the original error.
+		err = errors.Join(err, fmt.Errorf(
+			"failed to drop test database %q: %w",
+			dbName,
+			dropErr,
+		))
 	}()
 
 	// Connect to the new test database.
@@ -270,7 +276,7 @@ func (tm *TemplateManager) Cleanup(ctx context.Context) (errs error) {
 	// First, clean up all tracked test databases.
 	// Any errors are collected and returned after attempting to drop the template.
 	if err := tm.cleanupTrackedTestDatabases(ctx); err != nil {
-		errs = fmt.Errorf("warning: failed to clean up tracked test databases: %w", err)
+		errs = fmt.Errorf("failed to clean up tracked test databases: %w", err)
 	}
 
 	// Drop template database.
@@ -319,7 +325,11 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 
 		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(tm.templateName))
 		_, dropErr := adminConn.ExecContext(ctx, dropQuery)
-		err = errors.Join(err, dropErr)
+		if dropErr == nil {
+			return
+		}
+		// Append drop error to the original error.
+		err = errors.Join(err, fmt.Errorf("failed to drop template database: %w", dropErr))
 	}()
 
 	// Connect to template database and run migrations.
