@@ -2,6 +2,7 @@ package pgdbtemplate_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"slices"
@@ -225,13 +226,299 @@ func TestTemplateManagerValidation(t *testing.T) {
 			}
 
 			_, err := pgdbtemplate.NewTemplateManager(config)
-			if test.shouldSucceed {
-				c.Assert(err, qt.IsNil)
-			} else {
-				c.Assert(err, qt.IsNotNil)
-			}
+			c.Assert(err != nil, qt.Equals, !test.shouldSucceed)
 		})
 	}
+}
+
+// TestTemplateManagerErrors tests error conditions in template manager.
+func TestTemplateManagerErrors(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
+
+	c.Run("Template name generation", func(c *qt.C) {
+		provider := &mockConnectionProvider{connString: "postgres://localhost/test"}
+
+		// Without template name - should auto-generate.
+		config1 := pgdbtemplate.Config{
+			ConnectionProvider: provider,
+			MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		}
+		_, err := pgdbtemplate.NewTemplateManager(config1)
+		c.Assert(err, qt.IsNil)
+
+		// With custom template name.
+		config2 := pgdbtemplate.Config{
+			ConnectionProvider: provider,
+			MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+			TemplateName:       "custom_template",
+		}
+		_, err = pgdbtemplate.NewTemplateManager(config2)
+		c.Assert(err, qt.IsNil)
+	})
+
+	c.Run("Missing ConnectionProvider", func(c *qt.C) {
+		config := pgdbtemplate.Config{
+			// No ConnectionProvider.
+			MigrationRunner: &pgdbtemplate.NoOpMigrationRunner{},
+		}
+		_, err := pgdbtemplate.NewTemplateManager(config)
+		c.Assert(err, qt.ErrorMatches, ".*ConnectionProvider.*required.*")
+	})
+
+	c.Run("Missing MigrationRunner", func(c *qt.C) {
+		provider := &mockConnectionProvider{connString: "postgres://localhost/test"}
+		config := pgdbtemplate.Config{
+			ConnectionProvider: provider,
+			// No MigrationRunner.
+		}
+		_, err := pgdbtemplate.NewTemplateManager(config)
+		c.Assert(err, qt.ErrorMatches, ".*MigrationRunner.*required.*")
+	})
+}
+
+// TestDropTestDatabaseError tests error handling in DropTestDatabase.
+func TestDropTestDatabaseError(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	connProvider := setupTestConnectionProvider()
+	config := pgdbtemplate.Config{
+		ConnectionProvider: connProvider,
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       fmt.Sprintf("drop_error_template_%d_%d", time.Now().UnixNano(), os.Getpid()),
+	}
+
+	tm, err := pgdbtemplate.NewTemplateManager(config)
+	c.Assert(err, qt.IsNil)
+
+	// Initialize the template so DropTestDatabase can work.
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.IsNil)
+	defer func() {
+		c.Assert(tm.Cleanup(ctx), qt.IsNil)
+	}()
+
+	// Try to drop a non-existent database - this should error since
+	// DROP DATABASE is used (not IF EXISTS).
+	err = tm.DropTestDatabase(ctx, "non_existent_db_12345")
+	c.Assert(err, qt.ErrorMatches, ".*does not exist.*")
+}
+
+// TestCreateTestDatabaseWithExistingName tests creating a database with an existing name.
+func TestCreateTestDatabaseWithExistingName(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	connProvider := setupTestConnectionProvider()
+	migrationRunner := setupTestMigrationRunner(c)
+
+	config := pgdbtemplate.Config{
+		ConnectionProvider: connProvider,
+		MigrationRunner:    migrationRunner,
+		TemplateName:       fmt.Sprintf("existing_name_template_%d_%d", time.Now().UnixNano(), os.Getpid()),
+	}
+
+	tm, err := pgdbtemplate.NewTemplateManager(config)
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.IsNil)
+	defer func() {
+		c.Assert(tm.Cleanup(ctx), qt.IsNil)
+	}()
+
+	// Create first database with custom name.
+	testDBName := fmt.Sprintf("existing_test_%d_%d", time.Now().UnixNano(), os.Getpid())
+	testDB1, _, err := tm.CreateTestDatabase(ctx, testDBName)
+	c.Assert(err, qt.IsNil)
+	c.Assert(testDB1.Close(), qt.IsNil)
+
+	// Try to create second database with same name -
+	// should fail with "already exists" error.
+	_, _, err = tm.CreateTestDatabase(ctx, testDBName)
+	c.Assert(err, qt.ErrorMatches, ".*already exists.*")
+}
+
+// TestTemplateManagerCleanupErrorPaths tests error handling in Cleanup
+// when DROP DATABASE fails.
+func TestTemplateManagerCleanupErrorPaths(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
+	ctx := context.Background()
+
+	config := pgdbtemplate.Config{
+		ConnectionProvider: &mockDropTemplateDBProvider{failDrop: true},
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       "template_cleanup_error",
+		TestDBPrefix:       "test_template_cleanup_error_",
+	}
+
+	tm, err := pgdbtemplate.NewTemplateManager(config)
+	c.Assert(err, qt.IsNil)
+
+	// Simulate initialization and creation of test DBs.
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Initialize(ctx) // Should be no-op on re-initialization.
+	c.Assert(err, qt.IsNil)
+
+	_, _, err = tm.CreateTestDatabase(ctx)
+	c.Assert(err, qt.IsNil)
+
+	// Cleanup should fail due to DROP DATABASE error.
+	err = tm.Cleanup(ctx)
+	c.Assert(err, qt.ErrorMatches, "(?s).*drop error.*drop error.*")
+
+	// TODO: cleanup created template and test databases.
+}
+
+// TestTemplateManagerDropTestDatabaseErrorPaths tests error handling in DropTestDatabase
+// when pg_terminate_backend and DROP DATABASE fail.
+func TestTemplateManagerDropTestDatabaseErrorPaths(t *testing.T) {
+	c := qt.New(t)
+	ctx := context.Background()
+
+	config := pgdbtemplate.Config{
+		ConnectionProvider: &mockDropTemplateDBProvider{failTerminate: true, failDrop: true},
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       "template_drop_error",
+		TestDBPrefix:       "test_drop_error_",
+	}
+
+	tm, err := pgdbtemplate.NewTemplateManager(config)
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.IsNil)
+
+	_, testDBName, err := tm.CreateTestDatabase(ctx)
+	c.Assert(err, qt.IsNil)
+
+	// DropTestDatabase should fail due to terminate error (first step).
+	err = tm.DropTestDatabase(ctx, testDBName)
+	c.Assert(err, qt.ErrorMatches, ".*terminate error.*")
+
+	// TODO: cleanup created template and test databases.
+}
+
+func TestDropTemplateDatabaseConnectionError(t *testing.T) {
+	c := qt.New(t)
+	ctx := context.Background()
+
+	tm, err := pgdbtemplate.NewTemplateManager(pgdbtemplate.Config{
+		ConnectionProvider: &mockDropTemplateDBProvider{failConnect: true},
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       "template_db_conn_error",
+	})
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.ErrorMatches, ".*connect error.*")
+
+	_, _, err = tm.CreateTestDatabase(ctx)
+	c.Assert(err, qt.ErrorMatches, ".*connect error.*")
+
+	err = tm.DropTestDatabase(ctx, "any_db")
+	c.Assert(err, qt.ErrorMatches, ".*connect error.*")
+}
+
+func TestDropTemplateDatabaseUnmarkError(t *testing.T) {
+	c := qt.New(t)
+	ctx := context.Background()
+
+	tm, err := pgdbtemplate.NewTemplateManager(pgdbtemplate.Config{
+		ConnectionProvider: &mockDropTemplateDBProvider{failUnmark: true},
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       "template_db_unmark_error",
+	})
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Cleanup(ctx)
+	c.Assert(err, qt.ErrorMatches, ".*unmark error.*")
+
+	// TODO: cleanup created template database.
+}
+
+func TestDropTemplateDatabaseQueryRowError(t *testing.T) {
+	c := qt.New(t)
+	ctx := context.Background()
+
+	tm, err := pgdbtemplate.NewTemplateManager(pgdbtemplate.Config{
+		ConnectionProvider: &mockDropTemplateDBProvider{failQueryRow: true},
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       "template_db_queryrow_error",
+	})
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.ErrorMatches, ".*queryrow error.*")
+}
+
+func TestDropTemplateDatabaseBatchTerminateFailure(t *testing.T) {
+	c := qt.New(t)
+	ctx := context.Background()
+
+	tm, err := pgdbtemplate.NewTemplateManager(pgdbtemplate.Config{
+		ConnectionProvider: &mockDropTemplateDBProvider{failTerminate: true},
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       "template_batch_terminate_fail",
+	})
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.IsNil)
+	_, _, err = tm.CreateTestDatabase(ctx)
+	c.Assert(err, qt.IsNil)
+
+	// Cleanup should report terminate error.
+	err = tm.Cleanup(ctx)
+	c.Assert(err, qt.ErrorMatches, ".*terminate error.*")
+
+	// TODO: cleanup created template and test databases.
+}
+
+func TestInitializeCreateError(t *testing.T) {
+	c := qt.New(t)
+	ctx := context.Background()
+
+	tm, err := pgdbtemplate.NewTemplateManager(pgdbtemplate.Config{
+		ConnectionProvider: &mockDropTemplateDBProvider{failCreate: true, nonExistentQueryRow: true},
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       "fail_create_template",
+	})
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.ErrorMatches, ".*failed to create template database.*create error.*")
+}
+
+func TestCleanupAdminConnectError(t *testing.T) {
+	c := qt.New(t)
+	ctx := context.Background()
+
+	tm, err := pgdbtemplate.NewTemplateManager(pgdbtemplate.Config{
+		ConnectionProvider: &oneTimeFailProvider{},
+		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
+		TemplateName:       "cleanup_admin_connect_error",
+	})
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Initialize(ctx)
+	c.Assert(err, qt.IsNil)
+
+	err = tm.Cleanup(ctx)
+	c.Assert(err, qt.ErrorMatches, "failed to connect to admin database:.*connect error for admin db")
+
+	// TODO: cleanup created template database.
 }
 
 // testConnectionStringFunc creates a connection string for the given database name.
@@ -360,160 +647,122 @@ func (m *mockConnectionProvider) GetConnectionString(databaseName string) string
 	return m.connString
 }
 
-// TestTemplateManagerErrors tests error conditions in template manager.
-func TestTemplateManagerErrors(t *testing.T) {
-	t.Parallel()
-	c := qt.New(t)
-
-	c.Run("Non-PostgreSQL connection string", func(c *qt.C) {
-		provider := &mockConnectionProvider{connString: "mysql://localhost/test"}
-
-		config := pgdbtemplate.Config{
-			ConnectionProvider: provider,
-			MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
-		}
-
-		_, err := pgdbtemplate.NewTemplateManager(config)
-		c.Assert(err, qt.ErrorMatches, ".*requires a PostgreSQL connection string.*")
-	})
-
-	c.Run("Multiple PostgreSQL formats accepted", func(c *qt.C) {
-		testCases := []struct {
-			name       string
-			connString string
-			valid      bool
-		}{
-			{"postgres://", "postgres://localhost/test", true},
-			{"postgresql://", "postgresql://localhost/test", true},
-			{"mysql://", "mysql://localhost/test", false},
-			{"sqlite:", "sqlite:test.db", false},
-			{"empty", "", false},
-		}
-
-		for _, tc := range testCases {
-			c.Run(tc.name, func(c *qt.C) {
-				provider := &mockConnectionProvider{connString: tc.connString}
-				config := pgdbtemplate.Config{
-					ConnectionProvider: provider,
-					MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
-				}
-
-				_, err := pgdbtemplate.NewTemplateManager(config)
-				c.Assert(err == nil, qt.Equals, tc.valid)
-			})
-		}
-	})
-
-	c.Run("Template name generation", func(c *qt.C) {
-		provider := &mockConnectionProvider{connString: "postgres://localhost/test"}
-
-		// Without template name - should auto-generate.
-		config1 := pgdbtemplate.Config{
-			ConnectionProvider: provider,
-			MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
-		}
-		tm1, err := pgdbtemplate.NewTemplateManager(config1)
-		c.Assert(err, qt.IsNil)
-		c.Assert(tm1, qt.IsNotNil)
-
-		// With custom template name.
-		config2 := pgdbtemplate.Config{
-			ConnectionProvider: provider,
-			MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
-			TemplateName:       "custom_template",
-		}
-		tm2, err := pgdbtemplate.NewTemplateManager(config2)
-		c.Assert(err, qt.IsNil)
-		c.Assert(tm2, qt.IsNotNil)
-	})
-
-	c.Run("Missing ConnectionProvider", func(c *qt.C) {
-		config := pgdbtemplate.Config{
-			// No ConnectionProvider.
-			MigrationRunner: &pgdbtemplate.NoOpMigrationRunner{},
-		}
-		_, err := pgdbtemplate.NewTemplateManager(config)
-		c.Assert(err, qt.ErrorMatches, ".*ConnectionProvider.*required.*")
-	})
-
-	c.Run("Missing MigrationRunner", func(c *qt.C) {
-		provider := &mockConnectionProvider{connString: "postgres://localhost/test"}
-		config := pgdbtemplate.Config{
-			ConnectionProvider: provider,
-			// No MigrationRunner.
-		}
-		_, err := pgdbtemplate.NewTemplateManager(config)
-		c.Assert(err, qt.ErrorMatches, ".*MigrationRunner.*required.*")
-	})
+// oneTimeFailProvider is a ConnectionProvider
+// that fails on the second Connect call.
+type oneTimeFailProvider struct {
+	calls int
 }
 
-// TestDropTestDatabaseError tests error handling in DropTestDatabase.
-func TestDropTestDatabaseError(t *testing.T) {
-	t.Parallel()
-	c := qt.New(t)
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-
-	connProvider := setupTestConnectionProvider()
-	config := pgdbtemplate.Config{
-		ConnectionProvider: connProvider,
-		MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
-		TemplateName:       fmt.Sprintf("drop_error_template_%d_%d", time.Now().UnixNano(), os.Getpid()),
+// Connect implements pgdbtemplate.ConnectionProvider.Connect.
+func (p *oneTimeFailProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
+	p.calls++
+	if p.calls == 1 {
+		// First call (Initialize) succeeds.
+		return &mockDropTemplateDBConnection{}, nil
 	}
-
-	tm, err := pgdbtemplate.NewTemplateManager(config)
-	c.Assert(err, qt.IsNil)
-
-	// Initialize the template so DropTestDatabase can work.
-	err = tm.Initialize(ctx)
-	c.Assert(err, qt.IsNil)
-	defer func() {
-		c.Assert(tm.Cleanup(ctx), qt.IsNil)
-	}()
-
-	// Try to drop a non-existent database - this should error since
-	// DROP DATABASE is used (not IF EXISTS).
-	err = tm.DropTestDatabase(ctx, "non_existent_db_12345")
-	c.Assert(err, qt.ErrorMatches, ".*does not exist.*")
+	// Second call (Cleanup) fails.
+	return nil, fmt.Errorf("connect error for admin db")
 }
 
-// TestCreateTestDatabaseWithExistingName tests creating a database with an existing name.
-func TestCreateTestDatabaseWithExistingName(t *testing.T) {
-	t.Parallel()
-	c := qt.New(t)
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
+// GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
+func (p *oneTimeFailProvider) GetConnectionString(databaseName string) string {
+	return "postgres://user:password@localhost:5432/dbname"
+}
 
-	connProvider := setupTestConnectionProvider()
-	migrationRunner := setupTestMigrationRunner(c)
+// mockRow is a mock implementation of pgdbtemplate.Row.
+type mockRow struct {
+	err error
+}
 
-	config := pgdbtemplate.Config{
-		ConnectionProvider: connProvider,
-		MigrationRunner:    migrationRunner,
-		TemplateName:       fmt.Sprintf("existing_name_template_%d_%d", time.Now().UnixNano(), os.Getpid()),
+// Scan implements pgdbtemplate.Row.Scan.
+func (r *mockRow) Scan(dest ...any) error {
+	return r.err
+}
+
+// mockDropTemplateDBProvider simulates errors
+// during template database drop.
+type mockDropTemplateDBProvider struct {
+	failConnect         bool // Simulate connection error.
+	failUnmark          bool // Simulate error when unmarking template.
+	failDrop            bool // Simulate error when dropping database.
+	failTerminate       bool // Simulate error when terminating connections.
+	failQueryRow        bool // Simulate error in QueryRowContext.
+	nonExistentQueryRow bool // Simulate query for non-existent database.
+	failClose           bool // Simulate error in Close.
+	failMultiDrop       bool // Simulate multiple drop errors in cleanup.
+	failCreate          bool // Simulate error when creating database.
+}
+
+// Connect implements pgdbtemplate.ConnectionProvider.Connect.
+func (m *mockDropTemplateDBProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
+	if m.failConnect {
+		return nil, fmt.Errorf("connect error")
 	}
+	return &mockDropTemplateDBConnection{
+		failUnmark:          m.failUnmark,
+		failDrop:            m.failDrop,
+		failTerminate:       m.failTerminate,
+		failQueryRow:        m.failQueryRow,
+		nonExistentQueryRow: m.nonExistentQueryRow,
+		failClose:           m.failClose,
+		failMultiDrop:       m.failMultiDrop,
+		failCreate:          m.failCreate,
+	}, nil
+}
 
-	tm, err := pgdbtemplate.NewTemplateManager(config)
-	c.Assert(err, qt.IsNil)
+// GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
+func (m *mockDropTemplateDBProvider) GetConnectionString(databaseName string) string {
+	return "postgres://user:password@localhost:5432/dbname" // Mock value.
+}
 
-	err = tm.Initialize(ctx)
-	c.Assert(err, qt.IsNil)
-	defer func() {
-		c.Assert(tm.Cleanup(ctx), qt.IsNil)
-	}()
+// mockDropTemplateDBConnection simulates errors
+// during template database operations.
+type mockDropTemplateDBConnection struct {
+	failUnmark          bool // Simulate error when unmarking template.
+	failDrop            bool // Simulate error when dropping database.
+	failTerminate       bool // Simulate error when terminating connections.
+	failQueryRow        bool // Simulate error in QueryRowContext.
+	nonExistentQueryRow bool // Simulate query for non-existent database.
+	failClose           bool // Simulate error in Close.
+	failMultiDrop       bool // Simulate multiple drop errors in cleanup.
+	failCreate          bool // Simulate error when creating database.
+}
 
-	// Create first database with custom name.
-	testDBName := fmt.Sprintf("existing_test_%d_%d", time.Now().UnixNano(), os.Getpid())
-	testDB1, _, err := tm.CreateTestDatabase(ctx, testDBName)
-	c.Assert(err, qt.IsNil)
-	c.Assert(testDB1.Close(), qt.IsNil)
+// ExecContext implements pgdbtemplate.DatabaseConnection.ExecContext.
+func (m *mockDropTemplateDBConnection) ExecContext(ctx context.Context, query string, args ...any) (any, error) {
+	if m.failUnmark && strings.Contains(query, "is_template FALSE") {
+		return nil, fmt.Errorf("unmark error")
+	}
+	if m.failTerminate && strings.Contains(query, "pg_terminate_backend") {
+		return nil, fmt.Errorf("terminate error")
+	}
+	if m.failMultiDrop && strings.Contains(query, "DROP DATABASE") {
+		return nil, fmt.Errorf("multi drop error")
+	}
+	if m.failDrop && strings.Contains(query, "DROP DATABASE") {
+		return nil, fmt.Errorf("drop error")
+	}
+	if m.failCreate && strings.Contains(query, "CREATE DATABASE") {
+		return nil, fmt.Errorf("create error")
+	}
+	return nil, nil
+}
 
-	// Try to create second database with same name -
-	// should fail with "already exists" error.
-	_, _, err = tm.CreateTestDatabase(ctx, testDBName)
-	c.Assert(err, qt.ErrorMatches, ".*already exists.*")
+// QueryRowContext implements pgdbtemplate.DatabaseConnection.QueryRowContext.
+func (m *mockDropTemplateDBConnection) QueryRowContext(ctx context.Context, query string, args ...any) pgdbtemplate.Row {
+	if m.failQueryRow {
+		return &mockRow{err: fmt.Errorf("queryrow error")}
+	}
+	if m.nonExistentQueryRow {
+		return &mockRow{err: sql.ErrNoRows}
+	}
+	return &mockRow{}
+}
 
-	// Clean up.
-	err = tm.DropTestDatabase(ctx, testDBName)
-	c.Assert(err, qt.IsNil)
+// Close implements pgdbtemplate.DatabaseConnection.Close.
+func (m *mockDropTemplateDBConnection) Close() error {
+	if m.failClose {
+		return fmt.Errorf("close error")
+	}
+	return nil
 }

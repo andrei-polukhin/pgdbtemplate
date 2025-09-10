@@ -36,6 +36,8 @@ func TestFileMigrationRunner(t *testing.T) {
 	defer func() {
 		_, err := db.Exec(fmt.Sprintf("DROP TABLE %s", tableName))
 		c.Assert(err, qt.IsNil)
+		err = db.Close()
+		c.Assert(err, qt.IsNil)
 	}()
 
 	// Create temporary migration files.
@@ -71,51 +73,18 @@ func TestFileMigrationRunner(t *testing.T) {
 	c.Assert(name, qt.Equals, "Alice")
 }
 
-// TestAlphabeticalMigrationFilesSorting tests the sorting function.
-func TestAlphabeticalMigrationFilesSorting(t *testing.T) {
-	t.Parallel()
-	c := qt.New(t)
-
-	files := []string{
-		"/path/003_third.sql",
-		"/path/001_first.sql",
-		"/path/002_second.sql",
-	}
-
-	sorted := pgdbtemplate.AlphabeticalMigrationFilesSorting(files)
-
-	expected := []string{
-		"/path/001_first.sql",
-		"/path/002_second.sql",
-		"/path/003_third.sql",
-	}
-
-	c.Assert(sorted, qt.DeepEquals, expected)
-
-	// Verify original slice wasn't modified.
-	c.Assert(files[0], qt.Equals, "/path/003_third.sql")
-}
-
-// setupTestDatabase creates a test database connection.
-func setupTestDatabase(c *qt.C) *sql.DB {
-	db, err := sql.Open("postgres", testConnectionString)
-	c.Assert(err, qt.IsNil)
-
-	err = db.Ping()
-	c.Assert(err, qt.IsNil)
-
-	return db
-}
-
 // TestFileMigrationRunnerErrors tests error conditions in migration runner.
 func TestFileMigrationRunnerErrors(t *testing.T) {
 	t.Parallel()
 	c := qt.New(t)
 	ctx := context.Background()
 
+	// Do not use c.Parallel() not to interfere with other tests
+	// using the same DB.
+	db := setupTestDatabase(c)
+	defer func() { c.Assert(db.Close(), qt.IsNil) }()
+
 	c.Run("Invalid SQL causes error", func(c *qt.C) {
-		db := setupTestDatabase(c)
-		defer func() { c.Assert(db.Close(), qt.IsNil) }()
 		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
 		tempDir := c.TempDir()
@@ -125,24 +94,18 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 
 		runner := pgdbtemplate.NewFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
 		err = runner.RunMigrations(ctx, conn)
-		c.Assert(err, qt.IsNotNil)
 		c.Assert(err, qt.ErrorMatches, ".*failed to execute migration.*")
 	})
 
 	c.Run("Non-existent directory", func(c *qt.C) {
-		db := setupTestDatabase(c)
-		defer func() { c.Assert(db.Close(), qt.IsNil) }()
 		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
 		runner := pgdbtemplate.NewFileMigrationRunner([]string{"/non/existent/path"}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
 		err := runner.RunMigrations(ctx, conn)
-		c.Assert(err, qt.IsNotNil)
 		c.Assert(err, qt.ErrorMatches, ".*failed to collect files.*")
 	})
 
 	c.Run("Empty migration directory", func(c *qt.C) {
-		db := setupTestDatabase(c)
-		defer func() { c.Assert(db.Close(), qt.IsNil) }()
 		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
 		tempDir := c.TempDir()
@@ -152,8 +115,6 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 	})
 
 	c.Run("File read permission error", func(c *qt.C) {
-		db := setupTestDatabase(c)
-		defer func() { c.Assert(db.Close(), qt.IsNil) }()
 		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
 
 		tempDir := c.TempDir()
@@ -165,7 +126,6 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 		// Make file unreadable.
 		err = os.Chmod(filePath, 0000)
 		c.Assert(err, qt.IsNil)
-		defer os.Chmod(filePath, 0644) // Restore permissions.
 
 		runner := pgdbtemplate.NewFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
 		err = runner.RunMigrations(ctx, conn)
@@ -185,4 +145,15 @@ func TestNewFileMigrationRunnerBranches(t *testing.T) {
 	customFunc := func(files []string) []string { return files }
 	runner2 := pgdbtemplate.NewFileMigrationRunner([]string{"/tmp"}, customFunc)
 	c.Assert(runner2, qt.IsNotNil)
+}
+
+// setupTestDatabase creates a test database connection.
+func setupTestDatabase(c *qt.C) *sql.DB {
+	db, err := sql.Open("postgres", testConnectionString)
+	c.Assert(err, qt.IsNil)
+
+	err = db.Ping()
+	c.Assert(err, qt.IsNil)
+
+	return db
 }

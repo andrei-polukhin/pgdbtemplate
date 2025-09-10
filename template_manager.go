@@ -170,11 +170,9 @@ func (tm *TemplateManager) Initialize(ctx context.Context) error {
 }
 
 // CreateTestDatabase creates a new test database from the template.
+//
+// The caller is expected to call Initialize() before using this method.
 func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ...string) (_ DatabaseConnection, _ string, err error) {
-	if err := tm.Initialize(ctx); err != nil {
-		return nil, "", err
-	}
-
 	var dbName string
 	if len(testDBName) > 0 && testDBName[0] != "" {
 		dbName = testDBName[0]
@@ -232,6 +230,8 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 }
 
 // DropTestDatabase drops a test database.
+//
+// The caller is expected to call Initialize() before using this method.
 func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) error {
 	// Connect to template database for DROP operations.
 	// This is preferred to follow the least privilege principle.
@@ -265,6 +265,8 @@ func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) 
 }
 
 // Cleanup removes all tracked test databases and the template database.
+//
+// The caller is expected to call Initialize() before using this method.
 func (tm *TemplateManager) Cleanup(ctx context.Context) (errs error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -273,15 +275,22 @@ func (tm *TemplateManager) Cleanup(ctx context.Context) (errs error) {
 		return nil
 	}
 
+	// Connect to leader database.
+	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
+	if err != nil {
+		return fmt.Errorf("failed to connect to admin database: %w", err)
+	}
+	defer adminConn.Close()
+
 	// First, clean up all tracked test databases.
 	// Any errors are collected and returned after attempting to drop the template.
-	if err := tm.cleanupTrackedTestDatabases(ctx); err != nil {
+	if err := tm.cleanupTrackedTestDatabases(ctx, adminConn); err != nil {
 		errs = fmt.Errorf("failed to clean up tracked test databases: %w", err)
 	}
 
 	// Drop template database.
 	// Any errors are appended to errs.
-	if err := tm.dropTemplateDatabase(ctx); err != nil {
+	if err := tm.dropTemplateDatabase(ctx, adminConn); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("failed to drop template database: %w", err))
 	}
 
@@ -354,16 +363,10 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 }
 
 // dropTemplateDatabase removes the template database.
-func (tm *TemplateManager) dropTemplateDatabase(ctx context.Context) error {
-	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
-	if err != nil {
-		return err
-	}
-	defer adminConn.Close()
-
+func (tm *TemplateManager) dropTemplateDatabase(ctx context.Context, adminConn DatabaseConnection) error {
 	// Unmark as template first.
 	unmarkQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template FALSE", pq.QuoteIdentifier(tm.templateName))
-	_, err = adminConn.ExecContext(ctx, unmarkQuery)
+	_, err := adminConn.ExecContext(ctx, unmarkQuery)
 	if err != nil {
 		return fmt.Errorf("failed to unmark template database: %w", err)
 	}
@@ -375,7 +378,7 @@ func (tm *TemplateManager) dropTemplateDatabase(ctx context.Context) error {
 }
 
 // cleanupTrackedTestDatabases removes all test databases tracked by this manager.
-func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context) (errs error) {
+func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context, adminConn DatabaseConnection) (errs error) {
 	// Collect all tracked database names to avoid modifying map
 	// during iteration.
 	var dbNames []string
@@ -389,13 +392,6 @@ func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context) (err
 		return nil // No databases to clean up.
 	}
 
-	// Connect to admin database for DROP operations.
-	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
-	if err != nil {
-		return fmt.Errorf("failed to connect to admin database for cleanup: %w", err)
-	}
-	defer adminConn.Close()
-
 	// Batch terminate active connections for all databases at once.
 	// Connections might already be closed, so we append the error,
 	// but continue with cleanup.
@@ -407,7 +403,7 @@ func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context) (err
 	// PostgreSQL doesn't allow DROP DATABASE in transactions/batches.
 	for _, dbName := range dbNames {
 		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
-		_, err = adminConn.ExecContext(ctx, dropQuery)
+		_, err := adminConn.ExecContext(ctx, dropQuery)
 		if err != nil {
 			errs = errors.Join(errs, fmt.Errorf("failed to drop database %q: %w", dbName, err))
 			continue // Continue cleaning up other databases.

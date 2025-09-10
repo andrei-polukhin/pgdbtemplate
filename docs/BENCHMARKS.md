@@ -27,8 +27,8 @@ The benchmarks use a realistic schema with:
 
 | Approach | 1 Table | 3 Tables | 5 Tables | Scaling Behavior |
 |----------|---------|----------|----------|------------------|
-| **Traditional** | ~28.9ms | ~39.5ms | ~43.1ms | **Increases with complexity** |
-| **Template** | ~28.2ms | ~27.6ms | ~28.8ms | **🚀 Consistent performance** |
+| **Traditional** | ~32.5ms | ~42.4ms | ~47.4ms | **Increases with complexity** |
+| **Template** | ~31.3ms | ~31.0ms | ~31.9ms | **🚀 Consistent performance** |
 
 **Key Insight**: Template approach maintains constant performance regardless of
 schema complexity, while traditional approach scales linearly
@@ -55,20 +55,20 @@ The performance difference becomes more pronounced as schema complexity increase
 
 | Number of Databases | Traditional | Template | Improvement |
 |---------------------|-------------|----------|-------------|
-| 1 DB | 44.0ms | 45.9ms | **0.96x faster** |
-| 5 DBs | 229.3ms (44.9ms/db) | 168.2ms (32.9ms/db) | **🚀 1.36x faster** |
-| 10 DBs | 451.1ms (45.0ms/db) | 316.7ms (31.3ms/db) | **🚀 1.43x faster** |
-| 20 DBs | 906.8ms (45.3ms/db) | 613.8ms (29.4ms/db) | **🚀 1.48x faster** |
-| 50 DBs | 2.29s (45.8ms/db) | 1.53s (29.8ms/db) | **🚀 1.50x faster** |
-| 200 DBs | 9.21s (46.0ms/db) | 5.84s (29.2ms/db) | **🚀 1.58x faster** |
-| 500 DBs | 22.31s (44.6ms/db) | 14.82s (29.6ms/db) | **🚀 1.51x faster** |
+| 1 DB | 46.8ms | 46.7ms | **0.99x faster** |
+| 5 DBs | 224.7ms (44.8ms/db) | 179.4ms (33.2ms/db) | **🚀 1.35x faster** |
+| 10 DBs | 455.4ms (46.1ms/db) | 334.2ms (31.7ms/db) | **🚀 1.45x faster** |
+| 20 DBs | 922.5ms (45.3ms/db) | 726.5ms (33.6ms/db) | **🚀 1.35x faster** |
+| 50 DBs | 2.33s (46.5ms/db) | 1.59s (31.1ms/db) | **🚀 1.50x faster** |
+| 200 DBs | 9.45s (47.3ms/db) | 6.19s (30.8ms/db) | **🚀 1.54x faster** |
+| 500 DBs | 23.68s (47.4ms/db) | 15.61s (31.1ms/db) | **🚀 1.52x faster** |
 
 ### Concurrent Performance
 
 | Approach | Operations/sec | Concurrent Safety |
 |----------|----------------|-------------------|
-| **Traditional** | ~78.5 ops/sec | ✅ Good concurrency |
-| **Template** | **~86.5 ops/sec** | ✅ Thread-safe |
+| **Traditional** | ~70 ops/sec | ✅ Good concurrency |
+| **Template** | **~76 ops/sec** | ✅ Thread-safe |
 
 ## Detailed Analysis
 
@@ -88,13 +88,13 @@ The template approach shows **32-58% performance improvement** at scale:
 
 ### 3. **Memory Efficiency**
 
-- **Template approach**: ~88–93KB memory usage per operation
-- **Traditional approach**: ~105–106KB memory usage per operation  
-- **17% less memory** usage with templates
+- **Template approach**: ~89KB memory usage per operation
+- **Traditional approach**: ~106KB memory usage per operation
+- **~17% less memory** usage with templates
 
 ### 4. **One-Time Initialization Cost**
 
-Template initialization (one-time setup): **~47ms**
+Template initialization (one-time setup): **~49ms**
 - This is a **one-time cost** regardless of how many test databases you create
 - **Break-even point**: After creating just **2 databases**, you've recovered
   the initialization cost
