@@ -366,9 +366,9 @@ func (p *testDatabaseConnectionFailProvider) Connect(ctx context.Context, databa
 	return createRealConnectionProvider().Connect(ctx, databaseName)
 }
 
-// GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
-func (p *testDatabaseConnectionFailProvider) GetConnectionString(databaseName string) string {
-	return testConnectionStringFunc(databaseName)
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*testDatabaseConnectionFailProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }
 
 // templateConnectionFailProvider fails when connecting to a specific
@@ -388,8 +388,9 @@ func (p *templateConnectionFailProvider) Connect(ctx context.Context, databaseNa
 	return createRealConnectionProvider().Connect(ctx, databaseName)
 }
 
-func (p *templateConnectionFailProvider) GetConnectionString(databaseName string) string {
-	return testConnectionStringFunc(databaseName)
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*templateConnectionFailProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }
 
 // markTemplateFailProvider fails when executing
@@ -420,9 +421,9 @@ func (p *markTemplateFailProvider) Connect(ctx context.Context, databaseName str
 	return realConn, nil
 }
 
-// GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
-func (p *markTemplateFailProvider) GetConnectionString(databaseName string) string {
-	return testConnectionStringFunc(databaseName)
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*markTemplateFailProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }
 
 // markTemplateFailConnection wraps a connection and fails on

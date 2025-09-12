@@ -43,7 +43,7 @@ func NewStandardConnectionProvider(connStringFunc func(databaseName string) stri
 	}
 }
 
-// Connect creates a connection to the specified database.
+// Connect implements ConnectionProvider.Connect.
 func (p *StandardConnectionProvider) Connect(ctx context.Context, databaseName string) (DatabaseConnection, error) {
 	connString := p.connStringFunc(databaseName)
 	db, err := sql.Open("postgres", connString)
@@ -63,7 +63,7 @@ func (p *StandardConnectionProvider) Connect(ctx context.Context, databaseName s
 	return &StandardDatabaseConnection{DB: db}, nil
 }
 
-// GetConnectionString returns the connection string for a database.
-func (p *StandardConnectionProvider) GetConnectionString(databaseName string) string {
-	return p.connStringFunc(databaseName)
+// GetNoRowsSentinel implements ConnectionProvider.GetNoRowsSentinel.
+func (*StandardConnectionProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }
