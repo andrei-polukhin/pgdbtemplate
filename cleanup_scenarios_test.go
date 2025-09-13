@@ -371,6 +371,11 @@ func (p *testDatabaseConnectionFailProvider) GetConnectionString(databaseName st
 	return testConnectionStringFunc(databaseName)
 }
 
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*testDatabaseConnectionFailProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
+}
+
 // templateConnectionFailProvider fails when connecting to a specific
 // template database.
 type templateConnectionFailProvider struct {
@@ -388,8 +393,14 @@ func (p *templateConnectionFailProvider) Connect(ctx context.Context, databaseNa
 	return createRealConnectionProvider().Connect(ctx, databaseName)
 }
 
+// GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
 func (p *templateConnectionFailProvider) GetConnectionString(databaseName string) string {
 	return testConnectionStringFunc(databaseName)
+}
+
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*templateConnectionFailProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }
 
 // markTemplateFailProvider fails when executing
@@ -423,6 +434,11 @@ func (p *markTemplateFailProvider) Connect(ctx context.Context, databaseName str
 // GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
 func (p *markTemplateFailProvider) GetConnectionString(databaseName string) string {
 	return testConnectionStringFunc(databaseName)
+}
+
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*markTemplateFailProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }
 
 // markTemplateFailConnection wraps a connection and fails on

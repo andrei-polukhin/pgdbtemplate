@@ -200,37 +200,6 @@ func TestTemplateManagerConcurrentAccess(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 }
 
-// TestTemplateManagerValidation tests validation logic.
-func TestTemplateManagerValidation(t *testing.T) {
-	t.Parallel()
-	c := qt.New(t)
-
-	tests := []struct {
-		name          string
-		connString    string
-		shouldSucceed bool
-	}{
-		{"Valid postgres URL", "postgres://user:pass@localhost/db", true},
-		{"Valid postgres DSN", "postgres://localhost/db", true},
-		{"Invalid MySQL URL", "mysql://user:pass@localhost/db", false},
-		{"Invalid SQLite URL", "sqlite://test.db", false},
-		{"Empty connection string", "", false},
-	}
-
-	for _, test := range tests {
-		c.Run(test.name, func(c *qt.C) {
-			provider := &mockConnectionProvider{connString: test.connString}
-			config := pgdbtemplate.Config{
-				ConnectionProvider: provider,
-				MigrationRunner:    &pgdbtemplate.NoOpMigrationRunner{},
-			}
-
-			_, err := pgdbtemplate.NewTemplateManager(config)
-			c.Assert(err != nil, qt.Equals, !test.shouldSucceed)
-		})
-	}
-}
-
 // TestTemplateManagerErrors tests error conditions in template manager.
 func TestTemplateManagerErrors(t *testing.T) {
 	t.Parallel()
@@ -647,6 +616,11 @@ func (m *mockConnectionProvider) GetConnectionString(databaseName string) string
 	return m.connString
 }
 
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (m *mockConnectionProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
+}
+
 // oneTimeFailProvider is a ConnectionProvider
 // that fails on the second Connect call.
 type oneTimeFailProvider struct {
@@ -667,6 +641,11 @@ func (p *oneTimeFailProvider) Connect(ctx context.Context, databaseName string) 
 // GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
 func (p *oneTimeFailProvider) GetConnectionString(databaseName string) string {
 	return "postgres://user:password@localhost:5432/dbname"
+}
+
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*oneTimeFailProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }
 
 // mockRow is a mock implementation of pgdbtemplate.Row.
@@ -713,6 +692,11 @@ func (m *mockDropTemplateDBProvider) Connect(ctx context.Context, databaseName s
 // GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
 func (m *mockDropTemplateDBProvider) GetConnectionString(databaseName string) string {
 	return "postgres://user:password@localhost:5432/dbname" // Mock value.
+}
+
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*mockDropTemplateDBProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }
 
 // mockDropTemplateDBConnection simulates errors

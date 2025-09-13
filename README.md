@@ -37,7 +37,6 @@ import (
 	"log"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
-	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -219,7 +218,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
-	_ "github.com/lib/pq"
 )
 
 var (
