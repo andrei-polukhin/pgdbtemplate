@@ -2,7 +2,6 @@ package pgdbtemplate
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,8 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq"
+	"github.com/andrei-polukhin/pgdbtemplate/internal/formatters"
 )
 
 // defaultAdminDBName is the default administrative database name
@@ -49,8 +47,12 @@ type DatabaseConnection interface {
 type ConnectionProvider interface {
 	// Connect creates a connection to the specified database.
 	Connect(ctx context.Context, databaseName string) (DatabaseConnection, error)
-	// GetConnectionString returns connection string for the database.
-	GetConnectionString(databaseName string) string
+	// GetNoRowsSentinel returns the sentinel error indicating
+	// no rows were found.
+	//
+	// The default implementations use sql.ErrNoRows or pgx.ErrNoRows,
+	// but custom implementations may use different drivers.
+	GetNoRowsSentinel() error
 }
 
 // MigrationRunner executes migrations on a PostgreSQL database connection.
@@ -110,12 +112,6 @@ func NewTemplateManager(config Config) (*TemplateManager, error) {
 		return nil, fmt.Errorf("MigrationRunner is required")
 	}
 
-	// Check that the connection string is for PostgreSQL.
-	connStr := config.ConnectionProvider.GetConnectionString(defaultAdminDBName)
-	if !isPostgresConnectionString(connStr) {
-		return nil, fmt.Errorf("TemplateManager requires a PostgreSQL connection string, got: %s", connStr)
-	}
-
 	templateName := config.TemplateName
 	if templateName == "" {
 		templateName = fmt.Sprintf("template_db_%d_%d", time.Now().UnixNano(), atomic.AddInt64(&globalTemplateCounter, 1))
@@ -138,18 +134,6 @@ func NewTemplateManager(config Config) (*TemplateManager, error) {
 		testPrefix:   testPrefix,
 		adminDBName:  adminDBName,
 	}, nil
-}
-
-// isPostgresConnectionString checks if the connection string is for PostgreSQL.
-//
-// This function validates both URL and DSN formats, but rejects empty strings.
-func isPostgresConnectionString(connStr string) bool {
-	if strings.TrimSpace(connStr) == "" {
-		return false
-	}
-
-	_, err := pgx.ParseConfig(connStr)
-	return err == nil
 }
 
 // Initialize sets up the template database with all migrations.
@@ -191,7 +175,7 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 
 	// Create test database from template.
 	query := fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s",
-		pq.QuoteIdentifier(dbName), pq.QuoteIdentifier(tm.templateName))
+		formatters.QuoteIdentifier(dbName), formatters.QuoteIdentifier(tm.templateName))
 	if _, err := adminConn.ExecContext(ctx, query); err != nil {
 		return nil, "", fmt.Errorf("failed to create test database %s: %w", dbName, err)
 	}
@@ -201,7 +185,7 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 		if err == nil {
 			return
 		}
-		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
+		dropQuery := fmt.Sprintf("DROP DATABASE %s", formatters.QuoteIdentifier(dbName))
 		_, dropErr := adminConn.ExecContext(ctx, dropQuery)
 
 		// Also remove from tracking only if cleanup succeeded.
@@ -253,7 +237,7 @@ func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) 
 	}
 
 	// Drop the database.
-	dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
+	dropQuery := fmt.Sprintf("DROP DATABASE %s", formatters.QuoteIdentifier(dbName))
 	if _, err := templateConn.ExecContext(ctx, dropQuery); err != nil {
 		return fmt.Errorf("failed to drop database %s: %w", dbName, err)
 	}
@@ -308,20 +292,23 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 	defer adminConn.Close()
 
 	// Check if template already exists.
-	checkQuery := "SELECT TRUE FROM pg_database WHERE datname = $1 LIMIT 1"
+	checkQuery := fmt.Sprintf(
+		"SELECT TRUE FROM pg_database WHERE datname = %s LIMIT 1",
+		formatters.QuoteLiteral(tm.templateName),
+	)
 	var exists bool
-	err = adminConn.QueryRowContext(ctx, checkQuery, tm.templateName).Scan(&exists)
+	err = adminConn.QueryRowContext(ctx, checkQuery).Scan(&exists)
 	if err == nil {
 		// Template already exists, return early.
 		return nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, tm.provider.GetNoRowsSentinel()) {
 		// Unexpected error.
 		return fmt.Errorf("failed to check if template exists: %w", err)
 	}
 
 	// Create template database as it does not exist.
-	createQuery := fmt.Sprintf("CREATE DATABASE %s", pq.QuoteIdentifier(tm.templateName))
+	createQuery := fmt.Sprintf("CREATE DATABASE %s", formatters.QuoteIdentifier(tm.templateName))
 	if _, err := adminConn.ExecContext(ctx, createQuery); err != nil {
 		return fmt.Errorf("failed to create template database: %w", err)
 	}
@@ -332,7 +319,7 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 			return
 		}
 
-		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(tm.templateName))
+		dropQuery := fmt.Sprintf("DROP DATABASE %s", formatters.QuoteIdentifier(tm.templateName))
 		_, dropErr := adminConn.ExecContext(ctx, dropQuery)
 		if dropErr == nil {
 			return
@@ -355,7 +342,7 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 	}
 
 	// Mark database as template.
-	markTemplateQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template TRUE", pq.QuoteIdentifier(tm.templateName))
+	markTemplateQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template TRUE", formatters.QuoteIdentifier(tm.templateName))
 	if _, err := adminConn.ExecContext(ctx, markTemplateQuery); err != nil {
 		return fmt.Errorf("failed to mark database as template: %w", err)
 	}
@@ -365,14 +352,14 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 // dropTemplateDatabase removes the template database.
 func (tm *TemplateManager) dropTemplateDatabase(ctx context.Context, adminConn DatabaseConnection) error {
 	// Unmark as template first.
-	unmarkQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template FALSE", pq.QuoteIdentifier(tm.templateName))
+	unmarkQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template FALSE", formatters.QuoteIdentifier(tm.templateName))
 	_, err := adminConn.ExecContext(ctx, unmarkQuery)
 	if err != nil {
 		return fmt.Errorf("failed to unmark template database: %w", err)
 	}
 
 	// Drop template database.
-	dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(tm.templateName))
+	dropQuery := fmt.Sprintf("DROP DATABASE %s", formatters.QuoteIdentifier(tm.templateName))
 	_, err = adminConn.ExecContext(ctx, dropQuery)
 	return err
 }
@@ -402,7 +389,7 @@ func (tm *TemplateManager) cleanupTrackedTestDatabases(ctx context.Context, admi
 	// Drop all databases individually.
 	// PostgreSQL doesn't allow DROP DATABASE in transactions/batches.
 	for _, dbName := range dbNames {
-		dropQuery := fmt.Sprintf("DROP DATABASE %s", pq.QuoteIdentifier(dbName))
+		dropQuery := fmt.Sprintf("DROP DATABASE %s", formatters.QuoteIdentifier(dbName))
 		_, err := adminConn.ExecContext(ctx, dropQuery)
 		if err != nil {
 			errs = errors.Join(errs, fmt.Errorf("failed to drop database %q: %w", dbName, err))
@@ -423,7 +410,7 @@ func (tm *TemplateManager) batchTerminateConnections(ctx context.Context, adminC
 	// and provide better performance than parameterized queries (~30% faster).
 	quotedNames := make([]string, len(dbNames))
 	for i, dbName := range dbNames {
-		quotedNames[i] = pq.QuoteLiteral(dbName)
+		quotedNames[i] = formatters.QuoteLiteral(dbName)
 	}
 
 	terminateQuery := fmt.Sprintf(`

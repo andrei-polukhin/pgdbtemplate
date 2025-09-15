@@ -46,10 +46,6 @@ func TestStandardConnectionProvider(t *testing.T) {
 			pgdbtemplate.WithConnMaxIdleTime(30*time.Minute),
 		)
 
-		// Test connection string generation.
-		connStr := provider.GetConnectionString("testdb")
-		c.Assert(connStr, qt.Equals, "postgres://localhost/testdb")
-
 		// Attempt connection (will fail without real DB, but tests the code path).
 		_, err := provider.Connect(ctx, "testdb")
 		c.Assert(err, qt.IsNotNil) // Expected to fail without real PostgreSQL.
@@ -84,19 +80,6 @@ func TestStandardConnectionProvider(t *testing.T) {
 			pgdbtemplate.WithConnMaxIdleTime(15*time.Minute),
 		)
 		c.Assert(provider4, qt.IsNotNil)
-	})
-
-	c.Run("GetConnectionString uses provided function", func(c *qt.C) {
-		connStringFunc := func(dbName string) string {
-			return "postgres://localhost/" + dbName + "?sslmode=disable"
-		}
-
-		provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
-
-		connString := provider.GetConnectionString("mydb")
-		expected := "postgres://localhost/mydb?sslmode=disable"
-
-		c.Assert(connString, qt.Equals, expected)
 	})
 
 	c.Run("Connect respects context cancellation", func(c *qt.C) {

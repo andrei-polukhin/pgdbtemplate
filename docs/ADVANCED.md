@@ -17,7 +17,7 @@ type customConnectionProvider struct {
 
 // Connect implements pgdbtemplate.ConnectionProvider.Connect.
 func (p *customConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
-	connString := p.GetConnectionString(databaseName)
+	connString := strings.Replace(p.baseConnString, "/postgres?", "/"+databaseName+"?", 1)
 
 	db, err := sql.Open("postgres", connString)
 	if err != nil {
@@ -38,9 +38,9 @@ func (p *customConnectionProvider) Connect(ctx context.Context, databaseName str
 	return &pgdbtemplate.StandardDatabaseConnection{DB: db}, nil
 }
 
-// GetConnectionString implements pgdbtemplate.ConnectionProvider.GetConnectionString.
-func (p *customConnectionProvider) GetConnectionString(databaseName string) string {
-	return strings.Replace(p.baseConnString, "/postgres?", "/"+databaseName+"?", 1)
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*customConnectionProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }
 
 // authenticateWithToken performs custom token-based authentication.

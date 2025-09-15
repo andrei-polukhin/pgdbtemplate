@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -35,8 +36,6 @@ func NewPgxConnectionProvider(connectionStringFunc func(string) string, opts ...
 
 // Connect implements ConnectionProvider.Connect using pgx with connection pooling.
 func (p *PgxConnectionProvider) Connect(ctx context.Context, databaseName string) (DatabaseConnection, error) {
-	connString := p.GetConnectionString(databaseName)
-
 	// Check if we already have a pool for this database.
 	p.mu.RLock()
 	if pool, exists := p.pools[databaseName]; exists {
@@ -55,6 +54,7 @@ func (p *PgxConnectionProvider) Connect(ctx context.Context, databaseName string
 	}
 
 	// Parse connection string first.
+	connString := p.connectionStringFunc(databaseName)
 	config, err := pgxpool.ParseConfig(connString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
@@ -85,12 +85,7 @@ func (p *PgxConnectionProvider) Connect(ctx context.Context, databaseName string
 	return &PgxDatabaseConnection{Pool: pool}, nil
 }
 
-// GetConnectionString implements ConnectionProvider.GetConnectionString.
-func (p *PgxConnectionProvider) GetConnectionString(databaseName string) string {
-	return p.connectionStringFunc(databaseName)
-}
-
-// Close closes all connection pools.
+// Close implements ConnectionProvider.Close.
 func (p *PgxConnectionProvider) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -99,6 +94,11 @@ func (p *PgxConnectionProvider) Close() {
 		pool.Close()
 	}
 	p.pools = make(map[string]*pgxpool.Pool)
+}
+
+// GetNoRowsSentinel implements ConnectionProvider.GetNoRowsSentinel.
+func (*PgxConnectionProvider) GetNoRowsSentinel() error {
+	return pgx.ErrNoRows
 }
 
 // PgxDatabaseConnection implements DatabaseConnection using pgx.

@@ -82,18 +82,6 @@ func TestPgxConnectionProvider(t *testing.T) {
 		c.Assert(value, qt.Equals, 1)
 	})
 
-	c.Run("GetConnectionString", func(c *qt.C) {
-		provider := pgdbtemplate.NewPgxConnectionProvider(testConnectionStringFuncPgx)
-		defer provider.Close()
-
-		// Test URL format.
-		connStr := provider.GetConnectionString("testdb")
-		c.Assert(connStr, qt.Contains, "testdb")
-
-		// Test that it doesn't contain the original database name.
-		c.Assert(connStr, qt.Not(qt.Contains), "postgres?")
-	})
-
 	c.Run("Custom pool configuration", func(c *qt.C) {
 		c.Parallel()
 		// Create a custom pool config.
