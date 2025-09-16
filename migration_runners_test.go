@@ -9,7 +9,6 @@ import (
 	"time"
 
 	qt "github.com/frankban/quicktest"
-	_ "github.com/lib/pq"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
 )

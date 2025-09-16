@@ -5,13 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	qt "github.com/frankban/quicktest"
-	_ "github.com/lib/pq"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
 )
@@ -92,9 +90,9 @@ func TestTemplateManager(t *testing.T) {
 
 	// Verify system databases still exist and our test databases are gone.
 	databases := listDatabases(ctx, c, connProvider)
-	c.Assert(slices.Contains(databases, "postgres"), qt.IsTrue)
-	c.Assert(slices.Contains(databases, "template0"), qt.IsTrue)
-	c.Assert(slices.Contains(databases, "template1"), qt.IsTrue)
+	c.Assert(contains(databases, "postgres"), qt.IsTrue)
+	c.Assert(contains(databases, "template0"), qt.IsTrue)
+	c.Assert(contains(databases, "template1"), qt.IsTrue)
 	// Verify our specific test databases are gone.
 	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
 	c.Assert(databaseExists(ctx, connProvider, testDBName1), qt.IsFalse)
@@ -538,6 +536,15 @@ func databaseExists(ctx context.Context, provider pgdbtemplate.ConnectionProvide
 	query := "SELECT 1 FROM pg_database WHERE datname = $1 LIMIT 1"
 	err = adminConn.QueryRowContext(ctx, query, dbName).Scan(&exists)
 	return err == nil
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 func hasTestTable(ctx context.Context, conn pgdbtemplate.DatabaseConnection) bool {

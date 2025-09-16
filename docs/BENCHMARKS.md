@@ -9,7 +9,7 @@ traditional database creation and migration approaches.
 - **Hardware**: Apple M4 Pro (12 cores)
 - **Operating System**: macOS (darwin/arm64)
 - **PostgreSQL**: Local PostgreSQL instance
-- **Go Version**: 1.21+
+- **Go Version**: 1.20+
 - **Test Schema**: 5 tables with indexes, foreign keys, and sample data
 
 ## Test Schema Complexity
