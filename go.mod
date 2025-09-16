@@ -1,6 +1,6 @@
 module github.com/andrei-polukhin/pgdbtemplate
 
-go 1.21
+go 1.20
 
 require (
 	github.com/frankban/quicktest v1.14.6

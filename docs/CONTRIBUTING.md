@@ -17,7 +17,7 @@ for contributing to the project.
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.20 or later
 - PostgreSQL 9.5 or later (for testing)
 - Git
 
@@ -95,7 +95,7 @@ docker rm -f postgres-test
 
 All pull requests are automatically tested using GitHub Actions with:
 - PostgreSQL 15 service container
-- Go 1.21
+- Go 1.20
 - Race detection
 - Coverage reporting
 

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	qt "github.com/frankban/quicktest"
-	_ "github.com/lib/pq"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
 )
@@ -29,6 +28,25 @@ func TestStandardConnectionProvider(t *testing.T) {
 		// the connection string generation and that it attempts to connect.
 		_, err := provider.Connect(ctx, "testdb")
 		c.Assert(err, qt.IsNotNil)
+	})
+
+	c.Run("Basic pq connection", func(c *qt.C) {
+		c.Parallel()
+		connStringFunc := func(dbName string) string {
+			return pgdbtemplate.ReplaceDatabaseInConnectionString(testConnectionString, dbName)
+		}
+		provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
+
+		conn, err := provider.Connect(ctx, "postgres")
+		c.Assert(err, qt.IsNil)
+		defer func() { c.Assert(conn.Close(), qt.IsNil) }()
+
+		// Verify the connection works.
+		var value int
+		row := conn.QueryRowContext(ctx, "SELECT 1")
+		err = row.Scan(&value)
+		c.Assert(err, qt.IsNil)
+		c.Assert(value, qt.Equals, 1)
 	})
 
 	c.Run("Connection provider with options", func(c *qt.C) {

@@ -477,7 +477,7 @@ making it safe to use in any concurrent testing scenario.
 ## Requirements
 
 - PostgreSQL 9.5+ (for template database support)
-- Go 1.21+
+- Go 1.20+
 - PostgreSQL driver (`github.com/lib/pq` or `github.com/jackc/pgx/v5`)
 
 ## Contributing
