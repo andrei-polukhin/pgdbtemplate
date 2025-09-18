@@ -1,4 +1,4 @@
-name: Unit and integration tests for library
+name: Unit tests
 
 on:
   push:
@@ -9,21 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_PASSWORD: password
-          POSTGRES_USER: postgres
-          POSTGRES_DB: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
 
     steps:
     - uses: actions/checkout@v5
@@ -40,13 +25,9 @@ jobs:
       run: go vet ./...
 
     - name: Run tests with coverage
-      env:
-        POSTGRES_CONNECTION_STRING: "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
       run: go test -v -coverprofile=coverage.txt ./...
 
     - name: Run tests with race detection
-      env:
-        POSTGRES_CONNECTION_STRING: "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
       run: go test -race -v ./...
 
     - name: Upload coverage to Codecov

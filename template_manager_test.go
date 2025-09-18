@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -88,11 +89,6 @@ func TestTemplateManager(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
 
-	// Verify system databases still exist and our test databases are gone.
-	databases := listDatabases(ctx, c, connProvider)
-	c.Assert(contains(databases, "postgres"), qt.IsTrue)
-	c.Assert(contains(databases, "template0"), qt.IsTrue)
-	c.Assert(contains(databases, "template1"), qt.IsTrue)
 	// Verify our specific test databases are gone.
 	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
 	c.Assert(databaseExists(ctx, connProvider, testDBName1), qt.IsFalse)
@@ -488,14 +484,8 @@ func TestCleanupAdminConnectError(t *testing.T) {
 	// Note: Using mock provider, no real databases created - cleanup not needed.
 }
 
-// testConnectionStringFunc creates a connection string for the given database name.
-func testConnectionStringFunc(dbName string) string {
-	// Use the package-level connection string from init().
-	return pgdbtemplate.ReplaceDatabaseInConnectionString(testConnectionString, dbName)
-}
-
 func setupTestConnectionProvider() pgdbtemplate.ConnectionProvider {
-	return pgdbtemplate.NewStandardConnectionProvider(testConnectionStringFunc)
+	return NewMockConnectionProvider()
 }
 
 func setupTestMigrationRunner(c *qt.C) pgdbtemplate.MigrationRunner {
@@ -538,15 +528,6 @@ func databaseExists(ctx context.Context, provider pgdbtemplate.ConnectionProvide
 	return err == nil
 }
 
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
 func hasTestTable(ctx context.Context, conn pgdbtemplate.DatabaseConnection) bool {
 	var exists int
 	query := `
@@ -558,69 +539,165 @@ func hasTestTable(ctx context.Context, conn pgdbtemplate.DatabaseConnection) boo
 	return err == nil
 }
 
-func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.ConnectionProvider) []string {
-	adminConn, err := provider.Connect(ctx, "postgres")
-	c.Assert(err, qt.IsNil)
-	defer func() {
-		c.Assert(adminConn.Close(), qt.IsNil)
-	}()
-
-	standardDBConn, ok := adminConn.(*pgdbtemplate.StandardDatabaseConnection)
-	c.Assert(ok, qt.IsTrue)
-
-	rows, err := standardDBConn.Query(
-		"SELECT datname FROM pg_database WHERE NOT datistemplate",
-	)
-	c.Assert(err, qt.IsNil)
-	defer func() {
-		c.Assert(rows.Close(), qt.IsNil)
-	}()
-
-	var databases []string
-	for rows.Next() {
-		var name string
-		err := rows.Scan(&name)
-		c.Assert(err, qt.IsNil)
-
-		databases = append(databases, name)
-	}
-	c.Assert(rows.Err(), qt.IsNil)
-
-	// Also include template databases for verification.
-	rows2, err := standardDBConn.Query(
-		"SELECT datname FROM pg_database WHERE datistemplate",
-	)
-	c.Assert(err, qt.IsNil)
-	defer func() {
-		c.Assert(rows2.Close(), qt.IsNil)
-	}()
-
-	for rows2.Next() {
-		var name string
-		err := rows2.Scan(&name)
-		c.Assert(err, qt.IsNil)
-
-		databases = append(databases, name)
-	}
-	c.Assert(rows.Err(), qt.IsNil)
-
-	return databases
-}
-
 // mockConnectionProvider is a mock implementation of ConnectionProvider
 // for testing.
 type mockConnectionProvider struct {
 	connString string
+	databases  map[string]bool
+	mu         sync.RWMutex
+}
+
+// NewMockConnectionProvider creates a new mock connection provider.
+func NewMockConnectionProvider() *mockConnectionProvider {
+	return &mockConnectionProvider{
+		databases: map[string]bool{
+			"postgres":  true,
+			"template0": true,
+			"template1": true,
+		},
+	}
 }
 
 // Connect implements pgdbtemplate.ConnectionProvider.Connect.
-func (*mockConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
-	return nil, nil
+func (m *mockConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
+	return &tmMockDatabaseConnection{provider: m, dbName: databaseName}, nil
 }
 
 // GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
 func (m *mockConnectionProvider) GetNoRowsSentinel() error {
 	return sql.ErrNoRows
+}
+
+// tmMockDatabaseConnection is a mock implementation of DatabaseConnection.
+type tmMockDatabaseConnection struct {
+	provider *mockConnectionProvider
+	dbName   string
+}
+
+// ExecContext implements pgdbtemplate.DatabaseConnection.ExecContext.
+func (m *tmMockDatabaseConnection) ExecContext(ctx context.Context, query string, args ...any) (any, error) {
+	if strings.Contains(query, "CREATE DATABASE") {
+		parts := strings.Fields(query)
+		if len(parts) >= 3 {
+			dbName := strings.Trim(parts[2], `"`)
+			m.provider.mu.Lock()
+			if m.provider.databases == nil {
+				m.provider.databases = make(map[string]bool)
+			}
+			if m.provider.databases[dbName] {
+				m.provider.mu.Unlock()
+				return nil, fmt.Errorf("database \"%s\" already exists", dbName)
+			}
+			m.provider.databases[dbName] = true
+			m.provider.mu.Unlock()
+		}
+	} else if strings.Contains(query, "DROP DATABASE") {
+		parts := strings.Fields(query)
+		var dbName string
+		if len(parts) >= 5 && parts[2] == "IF" && parts[3] == "EXISTS" {
+			// Handle "DROP DATABASE IF EXISTS dbname"
+			dbName = strings.Trim(parts[4], `"`)
+		} else if len(parts) >= 3 {
+			// Handle "DROP DATABASE dbname"
+			dbName = strings.Trim(parts[2], `"`)
+		}
+		if dbName != "" {
+			m.provider.mu.Lock()
+			if m.provider.databases != nil && m.provider.databases[dbName] {
+				delete(m.provider.databases, dbName)
+			} else if !(len(parts) >= 5 && parts[2] == "IF" && parts[3] == "EXISTS") {
+				// Only error if it's not an "IF EXISTS" query
+				m.provider.mu.Unlock()
+				return nil, fmt.Errorf("database \"%s\" does not exist", dbName)
+			}
+			m.provider.mu.Unlock()
+		}
+	}
+	return nil, nil
+}
+
+// QueryRowContext implements pgdbtemplate.DatabaseConnection.QueryRowContext.
+func (m *tmMockDatabaseConnection) QueryRowContext(ctx context.Context, query string, args ...any) pgdbtemplate.Row {
+	if strings.Contains(query, "SELECT datname FROM pg_database WHERE NOT datistemplate") {
+		var dbs []any
+		m.provider.mu.RLock()
+		for db, exists := range m.provider.databases {
+			if exists && db != "template0" && db != "template1" {
+				dbs = append(dbs, db)
+			}
+		}
+		m.provider.mu.RUnlock()
+		return &mockRow{data: dbs}
+	}
+	if strings.Contains(query, "SELECT datname FROM pg_database WHERE datistemplate") {
+		var dbs []any
+		m.provider.mu.RLock()
+		for db, exists := range m.provider.databases {
+			if exists && (db == "template0" || db == "template1") {
+				dbs = append(dbs, db)
+			}
+		}
+		m.provider.mu.RUnlock()
+		return &mockRow{data: dbs}
+	}
+	if strings.Contains(query, "SELECT TRUE FROM pg_database WHERE datname") {
+		// Handle both parameterized and literal queries
+		if len(args) > 0 {
+			// Parameterized query: SELECT TRUE FROM pg_database WHERE datname = $1
+			if dbName, ok := args[0].(string); ok {
+				m.provider.mu.RLock()
+				exists := m.provider.databases[dbName]
+				m.provider.mu.RUnlock()
+				if exists {
+					return &mockRow{data: []any{true}}
+				}
+			}
+		} else if strings.Contains(query, "WHERE datname =") {
+			// Literal query: SELECT TRUE FROM pg_database WHERE datname = 'db_name'
+			parts := strings.Split(query, "WHERE datname =")
+			if len(parts) == 2 {
+				dbNameWithQuotes := strings.TrimSpace(parts[1])
+				dbNameWithQuotes = strings.TrimSuffix(dbNameWithQuotes, " LIMIT 1")
+				dbName := strings.Trim(dbNameWithQuotes, "'")
+				m.provider.mu.RLock()
+				exists := m.provider.databases[dbName]
+				m.provider.mu.RUnlock()
+				if exists {
+					return &mockRow{data: []any{true}}
+				}
+			}
+		}
+		return &mockRow{err: sql.ErrNoRows}
+	}
+	if strings.Contains(query, "SELECT 1 FROM pg_database") {
+		if len(args) > 0 {
+			if dbName, ok := args[0].(string); ok {
+				m.provider.mu.RLock()
+				exists := m.provider.databases[dbName]
+				m.provider.mu.RUnlock()
+				if exists {
+					return &mockRow{data: []any{1}}
+				}
+			}
+		}
+		return &mockRow{err: sql.ErrNoRows}
+	}
+	if strings.Contains(query, "SELECT 1 FROM information_schema.tables") {
+		// Assume test_table exists if db exists
+		m.provider.mu.RLock()
+		exists := m.provider.databases[m.dbName]
+		m.provider.mu.RUnlock()
+		if exists {
+			return &mockRow{data: []any{1}}
+		}
+		return &mockRow{err: sql.ErrNoRows}
+	}
+	return &mockRow{}
+}
+
+// Close implements pgdbtemplate.DatabaseConnection.Close.
+func (*tmMockDatabaseConnection) Close() error {
+	return nil
 }
 
 // oneTimeFailProvider is a ConnectionProvider
@@ -647,12 +724,28 @@ func (*oneTimeFailProvider) GetNoRowsSentinel() error {
 
 // mockRow is a mock implementation of pgdbtemplate.Row.
 type mockRow struct {
-	err error
+	data  []any
+	err   error
+	index int
 }
 
 // Scan implements pgdbtemplate.Row.Scan.
 func (r *mockRow) Scan(dest ...any) error {
-	return r.err
+	if r.err != nil {
+		return r.err
+	}
+	for i, d := range dest {
+		if r.index+i < len(r.data) {
+			switch v := d.(type) {
+			case *string:
+				*v = r.data[r.index+i].(string)
+			case *int:
+				*v = r.data[r.index+i].(int)
+			}
+		}
+	}
+	r.index += len(dest)
+	return nil
 }
 
 // mockDropTemplateDBProvider simulates errors

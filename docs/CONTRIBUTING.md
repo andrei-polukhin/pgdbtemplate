@@ -82,13 +82,6 @@ go test -v ./...
 # Run tests with coverage
 go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
-
-# Run tests against PostgreSQL container
-docker run -d --name postgres-test -p 5432:5432 \
-  -e POSTGRES_PASSWORD=password postgres:15
-export POSTGRES_CONNECTION_STRING="postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
-go test -v ./...
-docker rm -f postgres-test
 ```
 
 ### GitHub Actions

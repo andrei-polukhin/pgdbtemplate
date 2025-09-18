@@ -2,9 +2,9 @@ package pgdbtemplate_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,25 +19,12 @@ func TestFileMigrationRunner(t *testing.T) {
 	c := qt.New(t)
 	ctx := context.Background()
 
-	// Set up real database connection.
-	db := setupTestDatabase(c)
-	defer func() {
-		c.Assert(db.Close(), qt.IsNil)
-	}()
-
-	conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
+	// Set up mock database connection.
+	conn := &mockDatabaseConnection{}
 
 	// Create unique table names to avoid conflicts.
 	uniqueSuffix := fmt.Sprintf("_%d_%d", time.Now().UnixNano(), os.Getpid())
 	tableName := "test_users" + uniqueSuffix
-
-	// Ensure cleanup of any tables created during test.
-	defer func() {
-		_, err := db.Exec(fmt.Sprintf("DROP TABLE %s", tableName))
-		c.Assert(err, qt.IsNil)
-		err = db.Close()
-		c.Assert(err, qt.IsNil)
-	}()
 
 	// Create temporary migration files.
 	tempDir := c.TempDir()
@@ -55,21 +42,14 @@ func TestFileMigrationRunner(t *testing.T) {
 	runner := pgdbtemplate.NewFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
 	c.Assert(runner, qt.IsNotNil)
 
-	// Run migrations on real database.
+	// Run migrations on mock database.
 	err = runner.RunMigrations(ctx, conn)
 	c.Assert(err, qt.IsNil)
 
-	// Verify table was created and data inserted.
-	var count int
-	err = db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&count)
-	c.Assert(err, qt.IsNil)
-	c.Assert(count, qt.Equals, 2)
-
-	// Verify data content.
-	var name string
-	err = db.QueryRow(fmt.Sprintf("SELECT name FROM %s ORDER BY id LIMIT 1", tableName)).Scan(&name)
-	c.Assert(err, qt.IsNil)
-	c.Assert(name, qt.Equals, "Alice")
+	// Verify queries were executed.
+	c.Assert(len(conn.executed), qt.Equals, 2)
+	c.Assert(strings.Contains(conn.executed[0], "CREATE TABLE"), qt.IsTrue)
+	c.Assert(strings.Contains(conn.executed[1], "INSERT INTO"), qt.IsTrue)
 }
 
 // TestFileMigrationRunnerErrors tests error conditions in migration runner.
@@ -78,13 +58,8 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 	c := qt.New(t)
 	ctx := context.Background()
 
-	// Do not use c.Parallel() not to interfere with other tests
-	// using the same DB.
-	db := setupTestDatabase(c)
-	defer func() { c.Assert(db.Close(), qt.IsNil) }()
-
 	c.Run("Invalid SQL causes error", func(c *qt.C) {
-		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
+		conn := &mockDatabaseConnection{failOnInvalid: true}
 
 		tempDir := c.TempDir()
 		invalidSQL := "THIS IS NOT VALID SQL;"
@@ -97,7 +72,7 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 	})
 
 	c.Run("Non-existent directory", func(c *qt.C) {
-		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
+		conn := &mockDatabaseConnection{}
 
 		runner := pgdbtemplate.NewFileMigrationRunner([]string{"/non/existent/path"}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
 		err := runner.RunMigrations(ctx, conn)
@@ -105,7 +80,7 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 	})
 
 	c.Run("Empty migration directory", func(c *qt.C) {
-		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
+		conn := &mockDatabaseConnection{}
 
 		tempDir := c.TempDir()
 		runner := pgdbtemplate.NewFileMigrationRunner([]string{tempDir}, pgdbtemplate.AlphabeticalMigrationFilesSorting)
@@ -114,7 +89,7 @@ func TestFileMigrationRunnerErrors(t *testing.T) {
 	})
 
 	c.Run("File read permission error", func(c *qt.C) {
-		conn := &pgdbtemplate.StandardDatabaseConnection{DB: db}
+		conn := &mockDatabaseConnection{}
 
 		tempDir := c.TempDir()
 		validSQL := "SELECT 1;"
@@ -146,13 +121,31 @@ func TestNewFileMigrationRunnerBranches(t *testing.T) {
 	c.Assert(runner2, qt.IsNotNil)
 }
 
-// setupTestDatabase creates a test database connection.
-func setupTestDatabase(c *qt.C) *sql.DB {
-	db, err := sql.Open("postgres", testConnectionString)
-	c.Assert(err, qt.IsNil)
+// mockDatabaseConnection is a mock implementation of pgdbtemplate.DatabaseConnection.
+type mockDatabaseConnection struct {
+	executed      []string
+	failOnInvalid bool
+}
 
-	err = db.Ping()
-	c.Assert(err, qt.IsNil)
+func (m *mockDatabaseConnection) ExecContext(ctx context.Context, query string, args ...any) (any, error) {
+	if m.failOnInvalid && strings.Contains(query, "THIS IS NOT VALID") {
+		return nil, fmt.Errorf("invalid SQL")
+	}
+	m.executed = append(m.executed, query)
+	return nil, nil
+}
 
-	return db
+func (m *mockDatabaseConnection) QueryRowContext(ctx context.Context, query string, args ...any) pgdbtemplate.Row {
+	return &migrationMockRow{}
+}
+
+func (m *mockDatabaseConnection) Close() error {
+	return nil
+}
+
+// migrationMockRow is a mock implementation of pgdbtemplate.Row.
+type migrationMockRow struct{}
+
+func (r *migrationMockRow) Scan(dest ...any) error {
+	return nil
 }

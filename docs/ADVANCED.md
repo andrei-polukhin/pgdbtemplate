@@ -9,6 +9,10 @@ Implement your own connection logic for special authentication
 or connection requirements:
 
 ```go
+import (
+	pgdbtemplatepq "github.com/andrei-polukhin/pgdbtemplate-pq"
+)
+
 // customConnectionProvider is a custom provider with special authentication logic.
 type customConnectionProvider struct {
 	baseConnString string
@@ -35,7 +39,7 @@ func (p *customConnectionProvider) Connect(ctx context.Context, databaseName str
 		return nil, err
 	}
 
-	return &pgdbtemplate.StandardDatabaseConnection{DB: db}, nil
+	return &pgdbtemplatepq.DatabaseConnection{DB: db}, nil
 }
 
 // GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
@@ -57,6 +61,10 @@ func (p *customConnectionProvider) authenticateWithToken(ctx context.Context, db
 Implement custom migration logic for specialized requirements:
 
 ```go
+import (
+	pgdbtemplatepgx "github.com/andrei-polukhin/pgdbtemplate-pgx"
+)
+
 // customMigrationRunner is a custom migration runner that supports rollbacks.
 type customMigrationRunner struct {
 	upMigrations   []string
@@ -115,7 +123,7 @@ func createEnvironmentSpecificProvider() pgdbtemplate.ConnectionProvider {
 		}
 	default:
 		// Development environment uses standard provider.
-		return pgdbtemplate.NewStandardConnectionProvider(func(dbName string) string {
+		return pgdbtemplatepgx.NewConnectionProvider(func(dbName string) string {
 			return fmt.Sprintf("postgres://localhost:5432/%s?sslmode=disable", dbName)
 		})
 	}

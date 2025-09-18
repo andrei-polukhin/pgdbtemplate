@@ -37,6 +37,7 @@ import (
 	"log"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
+	"github.com/andrei-polukhin/pgdbtemplate-pgx"
 )
 
 func main() {
@@ -44,7 +45,7 @@ func main() {
 	connStringFunc := func(dbName string) string {
 		return fmt.Sprintf("postgres://user:pass@localhost/%s", dbName)
 	}
-	provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
+	provider := pgdbtemplatepgx.NewConnectionProvider(connStringFunc)
 
 	// Create migration runner.
 	migrationRunner := pgdbtemplate.NewFileMigrationRunner(
@@ -97,6 +98,7 @@ import (
 	"testing"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
+	"github.com/andrei-polukhin/pgdbtemplate-pgx"
 )
 
 var templateManager *pgdbtemplate.TemplateManager
@@ -124,10 +126,10 @@ func setupPgxTemplateManager() error {
 	}
 	
 	// Configure connection pool settings using options.
-	provider := pgdbtemplate.NewPgxConnectionProvider(
+	provider := pgdbtemplatepgx.NewConnectionProvider(
 		connStringFunc,
-		pgdbtemplate.WithPgxMaxConns(10),
-		pgdbtemplate.WithPgxMinConns(2),
+		pgdbtemplatepgx.WithMaxConns(10),
+		pgdbtemplatepgx.WithMinConns(2),
 	)
 
 	// Create migration runner.
@@ -215,6 +217,7 @@ import (
 	"time"
 
 	"github.com/andrei-polukhin/pgdbtemplate"
+	"github.com/andrei-polukhin/pgdbtemplate-pq"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -272,7 +275,7 @@ func setupTemplateManagerWithContainer(ctx context.Context) error {
 		// Replace the database name in the connection string.
 		return pgdbtemplate.ReplaceDatabaseInConnectionString(connStr, dbName)
 	}
-	provider := pgdbtemplate.NewStandardConnectionProvider(connStringFunc)
+	provider := pgdbtemplatepq.NewConnectionProvider(connStringFunc)
 
 	// Create migration runner.
 	migrationRunner := pgdbtemplate.NewFileMigrationRunner(
@@ -362,32 +365,38 @@ func TestConcurrentOperations(t *testing.T) {
 
 ### 3. Connection Pooling and Options
 
-The `StandardConnectionProvider` supports common database connection pooling
+The `pgdbtemplatepq.ConnectionProvider` supports common database connection pooling
 options without requiring custom implementations:
 
 ```go
-import "time"
+import (
+	"time"
 
-provider := pgdbtemplate.NewStandardConnectionProvider(
+	"github.com/andrei-polukhin/pgdbtemplate-pq"
+)
+
+provider := pgdbtemplatepq.NewConnectionProvider(
 	func(dbName string) string {
 		return "..."
 	},
-	pgdbtemplate.WithMaxOpenConns(25),
-	pgdbtemplate.WithMaxIdleConns(10),
-	pgdbtemplate.WithConnMaxLifetime(time.Hour),
-	pgdbtemplate.WithConnMaxIdleTime(30*time.Minute),
+	pgdbtemplatepq.WithMaxOpenConns(25),
+	pgdbtemplatepq.WithMaxIdleConns(10),
+	pgdbtemplatepq.WithConnMaxLifetime(time.Hour),
+	pgdbtemplatepq.WithConnMaxIdleTime(30*time.Minute),
 )
 ```
 
-The same applies to `PgxConnectionProvider`:
+The same applies to `pgdbtemplatepgx.ConnectionProvider`:
 
 ```go
-provider := pgdbtemplate.NewPgxConnectionProvider(
+import "github.com/andrei-polukhin/pgdbtemplate-pgx"
+
+provider := pgdbtemplatepgx.NewConnectionProvider(
 	func(dbName string) string {
 		return "..."
 	},
-	pgdbtemplate.WithPgxMaxConns(10),
-	pgdbtemplate.WithPgxMinConns(2),
+	pgdbtemplatepgx.WithMaxConns(10),
+	pgdbtemplatepgx.WithMinConns(2),
 )
 ```
 
@@ -478,7 +487,9 @@ making it safe to use in any concurrent testing scenario.
 
 - PostgreSQL 9.5+ (for template database support)
 - Go 1.20+
-- PostgreSQL driver (`github.com/lib/pq` or `github.com/jackc/pgx/v5`)
+- Choose either one of these PostgreSQL drivers:
+  - `github.com/andrei-polukhin/pgdbtemplate-pq` (for `database/sql` with `lib/pq`)
+  - `github.com/andrei-polukhin/pgdbtemplate-pgx` (for `pgx/v5` with connection pooling)
 
 ## Contributing
 
