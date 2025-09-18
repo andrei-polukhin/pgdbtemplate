@@ -26,6 +26,13 @@ template databases for lightning-fast test execution.
 go get github.com/andrei-polukhin/pgdbtemplate
 ```
 
+## Choose a PostgreSQL Driver
+
+Choose either one of these PostgreSQL drivers:
+
+- `github.com/andrei-polukhin/pgdbtemplate-pq` (for `database/sql` with `lib/pq`)
+- `github.com/andrei-polukhin/pgdbtemplate-pgx` (for `pgx/v5` with connection pooling)
+
 ## Quick Start
 
 ```go
@@ -363,43 +370,6 @@ func TestConcurrentOperations(t *testing.T) {
 }
 ```
 
-### 3. Connection Pooling and Options
-
-The `pgdbtemplatepq.ConnectionProvider` supports common database connection pooling
-options without requiring custom implementations:
-
-```go
-import (
-	"time"
-
-	"github.com/andrei-polukhin/pgdbtemplate-pq"
-)
-
-provider := pgdbtemplatepq.NewConnectionProvider(
-	func(dbName string) string {
-		return "..."
-	},
-	pgdbtemplatepq.WithMaxOpenConns(25),
-	pgdbtemplatepq.WithMaxIdleConns(10),
-	pgdbtemplatepq.WithConnMaxLifetime(time.Hour),
-	pgdbtemplatepq.WithConnMaxIdleTime(30*time.Minute),
-)
-```
-
-The same applies to `pgdbtemplatepgx.ConnectionProvider`:
-
-```go
-import "github.com/andrei-polukhin/pgdbtemplate-pgx"
-
-provider := pgdbtemplatepgx.NewConnectionProvider(
-	func(dbName string) string {
-		return "..."
-	},
-	pgdbtemplatepgx.WithMaxConns(10),
-	pgdbtemplatepgx.WithMinConns(2),
-)
-```
-
 ## Advanced Cases
 
 For advanced usage scenarios including custom connection providers and
@@ -478,18 +448,32 @@ making it safe to use in any concurrent testing scenario.
 ## Best Practices
 
 1. **Initialize once**: Set up the template manager in `TestMain()`
-2. **Cleanup**: Always call `DropTestDatabase()` and `Cleanup()`
-3. **Isolation**: Each test should use its own database
-4. **Naming**: Use descriptive test database names for debugging
-5. **Migration order**: Use numbered prefixes for deterministic ordering
+
+2. **Cleanup**: Always call `DropTestDatabase()` for each created test database,
+   and `Cleanup()` once at the end:
+   - `DropTestDatabase(dbName)`: Drops a specific test database and removes it from tracking.
+   - `Cleanup()`: Drops all remaining tracked test databases AND the template database
+   (call once in `TestMain()`).
+
+3. **Isolation**: Each test should use its own database to prevent interference
+between tests.
+
+4. **Naming**: Let `pgdbtemplate` auto-generate unique database names
+(recommended for most cases):
+   ```go
+   // Good: Auto-generated name (recommended).
+   testDB, testDBName, err := templateManager.CreateTestDatabase(ctx)
+   
+   // Advanced: Custom name only when needed for debugging.
+   testDB, testDBName, err := templateManager.CreateTestDatabase(ctx, "my_test_debug")
+   ```
+
+5. **Migration order**: Use numbered prefixes for deterministic ordering.
 
 ## Requirements
 
 - PostgreSQL 9.5+ (for template database support)
 - Go 1.20+
-- Choose either one of these PostgreSQL drivers:
-  - `github.com/andrei-polukhin/pgdbtemplate-pq` (for `database/sql` with `lib/pq`)
-  - `github.com/andrei-polukhin/pgdbtemplate-pgx` (for `pgx/v5` with connection pooling)
 
 ## Contributing
 
