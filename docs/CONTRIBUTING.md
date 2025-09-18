@@ -87,7 +87,6 @@ go tool cover -html=coverage.out
 ### GitHub Actions
 
 All pull requests are automatically tested using GitHub Actions with:
-- PostgreSQL 15 service container
 - Go 1.20
 - Race detection
 - Coverage reporting

@@ -30,8 +30,8 @@ go get github.com/andrei-polukhin/pgdbtemplate
 
 Choose either one of these PostgreSQL drivers:
 
-- `github.com/andrei-polukhin/pgdbtemplate-pq` (for `database/sql` with `lib/pq`)
 - `github.com/andrei-polukhin/pgdbtemplate-pgx` (for `pgx/v5` with connection pooling)
+- `github.com/andrei-polukhin/pgdbtemplate-pq` (for `database/sql` with `lib/pq`)
 
 ## Quick Start
 
@@ -474,6 +474,11 @@ between tests.
 
 - PostgreSQL 9.5+ (for template database support)
 - Go 1.20+
+
+## Contributors
+
+We appreciate all the contributors who have helped make this project better!
+Please see [CONTRIBUTORS.md](docs/CONTRIBUTORS.md) for the full list.
 
 ## Contributing
 
