@@ -33,7 +33,7 @@ jobs:
         go install honnef.co/go/tools/cmd/staticcheck@latest
         staticcheck ./...
 
-    - name: Check for known vulnerabilities  
+    - name: Check for known vulnerabilities
       run: |
         go install golang.org/x/vuln/cmd/govulncheck@latest
         govulncheck ./...

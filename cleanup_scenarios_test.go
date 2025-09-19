@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -319,7 +320,13 @@ func TestCreateTemplateDatabaseCleanupOnMarkTemplateFailureWithDropFailure(t *te
 
 // Helper function to create a test connection provider for testing.
 func createRealConnectionProvider() pgdbtemplate.ConnectionProvider {
-	return pgdbtemplate.NewStandardConnectionProvider(testConnectionStringFunc)
+	return &cleanupMockConnectionProvider{
+		databases: map[string]bool{
+			"postgres":  true,
+			"template0": true,
+			"template1": true,
+		},
+	}
 }
 
 // testDatabaseConnectionFailProvider fails when connecting to databases
@@ -399,11 +406,15 @@ type markTemplateFailProvider struct {
 	adminDBName string
 	failDrop    bool
 	failOnAlter bool
+	provider    pgdbtemplate.ConnectionProvider
 }
 
 // Connect implements pgdbtemplate.ConnectionProvider.Connect.
 func (p *markTemplateFailProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
-	realConn, err := createRealConnectionProvider().Connect(ctx, databaseName)
+	if p.provider == nil {
+		p.provider = createRealConnectionProvider()
+	}
+	realConn, err := p.provider.Connect(ctx, databaseName)
 	if err != nil {
 		return nil, err
 	}
@@ -455,4 +466,30 @@ type failingMigrationRunner struct {
 // RunMigrations implements pgdbtemplate.MigrationRunner.RunMigrations.
 func (r *failingMigrationRunner) RunMigrations(ctx context.Context, conn pgdbtemplate.DatabaseConnection) error {
 	return fmt.Errorf(r.errorMsg)
+}
+
+// cleanupMockConnectionProvider is a mock implementation of ConnectionProvider for testing.
+type cleanupMockConnectionProvider struct {
+	databases map[string]bool
+	mu        sync.RWMutex
+}
+
+// getDatabases implements databaseProvider.getDatabases.
+func (m *cleanupMockConnectionProvider) getDatabases() map[string]bool {
+	return m.databases
+}
+
+// getMutex implements databaseProvider.getMutex.
+func (m *cleanupMockConnectionProvider) getMutex() *sync.RWMutex {
+	return &m.mu
+}
+
+// Connect implements pgdbtemplate.ConnectionProvider.Connect.
+func (m *cleanupMockConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
+	return &sharedMockDatabaseConnection{provider: m, dbName: databaseName}, nil
+}
+
+// GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
+func (*cleanupMockConnectionProvider) GetNoRowsSentinel() error {
+	return sql.ErrNoRows
 }

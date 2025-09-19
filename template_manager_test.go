@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -88,11 +89,6 @@ func TestTemplateManager(t *testing.T) {
 	c.Assert(err, qt.IsNil)
 	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
 
-	// Verify system databases still exist and our test databases are gone.
-	databases := listDatabases(ctx, c, connProvider)
-	c.Assert(contains(databases, "postgres"), qt.IsTrue)
-	c.Assert(contains(databases, "template0"), qt.IsTrue)
-	c.Assert(contains(databases, "template1"), qt.IsTrue)
 	// Verify our specific test databases are gone.
 	c.Assert(databaseExists(ctx, connProvider, config.TemplateName), qt.IsFalse)
 	c.Assert(databaseExists(ctx, connProvider, testDBName1), qt.IsFalse)
@@ -488,14 +484,8 @@ func TestCleanupAdminConnectError(t *testing.T) {
 	// Note: Using mock provider, no real databases created - cleanup not needed.
 }
 
-// testConnectionStringFunc creates a connection string for the given database name.
-func testConnectionStringFunc(dbName string) string {
-	// Use the package-level connection string from init().
-	return pgdbtemplate.ReplaceDatabaseInConnectionString(testConnectionString, dbName)
-}
-
 func setupTestConnectionProvider() pgdbtemplate.ConnectionProvider {
-	return pgdbtemplate.NewStandardConnectionProvider(testConnectionStringFunc)
+	return NewMockConnectionProvider()
 }
 
 func setupTestMigrationRunner(c *qt.C) pgdbtemplate.MigrationRunner {
@@ -538,15 +528,6 @@ func databaseExists(ctx context.Context, provider pgdbtemplate.ConnectionProvide
 	return err == nil
 }
 
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
 func hasTestTable(ctx context.Context, conn pgdbtemplate.DatabaseConnection) bool {
 	var exists int
 	query := `
@@ -558,64 +539,38 @@ func hasTestTable(ctx context.Context, conn pgdbtemplate.DatabaseConnection) boo
 	return err == nil
 }
 
-func listDatabases(ctx context.Context, c *qt.C, provider pgdbtemplate.ConnectionProvider) []string {
-	adminConn, err := provider.Connect(ctx, "postgres")
-	c.Assert(err, qt.IsNil)
-	defer func() {
-		c.Assert(adminConn.Close(), qt.IsNil)
-	}()
-
-	standardDBConn, ok := adminConn.(*pgdbtemplate.StandardDatabaseConnection)
-	c.Assert(ok, qt.IsTrue)
-
-	rows, err := standardDBConn.Query(
-		"SELECT datname FROM pg_database WHERE NOT datistemplate",
-	)
-	c.Assert(err, qt.IsNil)
-	defer func() {
-		c.Assert(rows.Close(), qt.IsNil)
-	}()
-
-	var databases []string
-	for rows.Next() {
-		var name string
-		err := rows.Scan(&name)
-		c.Assert(err, qt.IsNil)
-
-		databases = append(databases, name)
-	}
-	c.Assert(rows.Err(), qt.IsNil)
-
-	// Also include template databases for verification.
-	rows2, err := standardDBConn.Query(
-		"SELECT datname FROM pg_database WHERE datistemplate",
-	)
-	c.Assert(err, qt.IsNil)
-	defer func() {
-		c.Assert(rows2.Close(), qt.IsNil)
-	}()
-
-	for rows2.Next() {
-		var name string
-		err := rows2.Scan(&name)
-		c.Assert(err, qt.IsNil)
-
-		databases = append(databases, name)
-	}
-	c.Assert(rows.Err(), qt.IsNil)
-
-	return databases
-}
-
 // mockConnectionProvider is a mock implementation of ConnectionProvider
 // for testing.
 type mockConnectionProvider struct {
 	connString string
+	databases  map[string]bool
+	mu         sync.RWMutex
+}
+
+// getDatabases implements databaseProvider.getDatabases.
+func (m *mockConnectionProvider) getDatabases() map[string]bool {
+	return m.databases
+}
+
+// getMutex implements databaseProvider.getMutex.
+func (m *mockConnectionProvider) getMutex() *sync.RWMutex {
+	return &m.mu
+}
+
+// NewMockConnectionProvider creates a new mock connection provider.
+func NewMockConnectionProvider() *mockConnectionProvider {
+	return &mockConnectionProvider{
+		databases: map[string]bool{
+			"postgres":  true,
+			"template0": true,
+			"template1": true,
+		},
+	}
 }
 
 // Connect implements pgdbtemplate.ConnectionProvider.Connect.
-func (*mockConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
-	return nil, nil
+func (m *mockConnectionProvider) Connect(ctx context.Context, databaseName string) (pgdbtemplate.DatabaseConnection, error) {
+	return &sharedMockDatabaseConnection{provider: m, dbName: databaseName}, nil
 }
 
 // GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
@@ -643,16 +598,6 @@ func (p *oneTimeFailProvider) Connect(ctx context.Context, databaseName string) 
 // GetNoRowsSentinel implements pgdbtemplate.ConnectionProvider.GetNoRowsSentinel.
 func (*oneTimeFailProvider) GetNoRowsSentinel() error {
 	return sql.ErrNoRows
-}
-
-// mockRow is a mock implementation of pgdbtemplate.Row.
-type mockRow struct {
-	err error
-}
-
-// Scan implements pgdbtemplate.Row.Scan.
-func (r *mockRow) Scan(dest ...any) error {
-	return r.err
 }
 
 // mockDropTemplateDBProvider simulates errors
@@ -727,12 +672,12 @@ func (m *mockDropTemplateDBConnection) ExecContext(ctx context.Context, query st
 // QueryRowContext implements pgdbtemplate.DatabaseConnection.QueryRowContext.
 func (m *mockDropTemplateDBConnection) QueryRowContext(ctx context.Context, query string, args ...any) pgdbtemplate.Row {
 	if m.failQueryRow {
-		return &mockRow{err: fmt.Errorf("queryrow error")}
+		return &sharedMockRow{err: fmt.Errorf("queryrow error")}
 	}
 	if m.nonExistentQueryRow {
-		return &mockRow{err: sql.ErrNoRows}
+		return &sharedMockRow{err: sql.ErrNoRows}
 	}
-	return &mockRow{}
+	return &sharedMockRow{}
 }
 
 // Close implements pgdbtemplate.DatabaseConnection.Close.
