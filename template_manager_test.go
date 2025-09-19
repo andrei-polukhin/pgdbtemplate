@@ -444,7 +444,7 @@ func TestDropTemplateDatabaseBatchTerminateFailure(t *testing.T) {
 
 	// Cleanup should report terminate error.
 	err = tm.Cleanup(ctx)
-	c.Assert(err, qt.ErrorMatches, ".*terminate error.*")
+	c.Assert(err, qt.ErrorMatches, `(?s).*terminate error.*`)
 
 	// Note: Using mock provider, no real databases created - cleanup not needed.
 }
