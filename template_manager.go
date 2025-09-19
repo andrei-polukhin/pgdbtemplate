@@ -274,7 +274,7 @@ func (tm *TemplateManager) Cleanup(ctx context.Context) (errs error) {
 
 	// Drop template database.
 	// Any errors are appended to errs.
-	if err := tm.dropTemplateDatabase(ctx, adminConn); err != nil {
+	if err := tm.cleanupTemplateDatabase(ctx, adminConn); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("failed to drop template database: %w", err))
 	}
 
@@ -349,8 +349,13 @@ func (tm *TemplateManager) createTemplateDatabase(ctx context.Context) (err erro
 	return nil
 }
 
-// dropTemplateDatabase removes the template database.
-func (tm *TemplateManager) dropTemplateDatabase(ctx context.Context, adminConn DatabaseConnection) error {
+// cleanupTemplateDatabase removes the template database.
+func (tm *TemplateManager) cleanupTemplateDatabase(ctx context.Context, adminConn DatabaseConnection) error {
+	// Terminate active connections to the template database.
+	if err := tm.batchTerminateConnections(ctx, adminConn, []string{tm.templateName}); err != nil {
+		return fmt.Errorf("failed to terminate connections to the template database: %w", err)
+	}
+
 	// Unmark as template first.
 	unmarkQuery := fmt.Sprintf("ALTER DATABASE %s WITH is_template FALSE", formatters.QuoteIdentifier(tm.templateName))
 	_, err := adminConn.ExecContext(ctx, unmarkQuery)
