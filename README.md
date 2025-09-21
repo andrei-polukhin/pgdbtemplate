@@ -10,8 +10,8 @@ template databases for lightning-fast test execution.
 
 ## Features
 
-- **🚀 Lightning-fast test databases** - 1.2-1.6x faster than traditional approach
-  of running migrations every time, scales to 500 databases, ~17% less memory usage
+- **🚀 Lightning-fast test databases** - 1.2-1.6x faster than traditional approach,
+  scales to 500 databases, ~17% less memory usage
 - **🔒 Thread-safe** - concurrent test database management
 - **📊 Scales with complexity** - performance advantage increases with schema complexity
 - **🎯 PostgreSQL-specific** with connection string validation
@@ -19,6 +19,11 @@ template databases for lightning-fast test execution.
 - **🧪 Flexible testing** support for various test scenarios
 - **📦 Testcontainers integration** for containerized testing
 - **🔧 Configurable** migration runners and connection providers
+
+## Why Choose `pgdbtemplate`?
+
+Evaluating PostgreSQL testing libraries? See our detailed
+[comparison with other solutions](docs/COMPARISON.md).
 
 ## Installation
 
