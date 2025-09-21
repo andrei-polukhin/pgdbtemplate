@@ -6,13 +6,15 @@ on:
     - cron: '0 2 * * 1'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
 jobs:
   security-scan:
     name: Security Analysis
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
 
     steps:
     - name: Checkout code

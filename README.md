@@ -15,7 +15,7 @@ template databases for lightning-fast test execution.
 - **🔒 Thread-safe** - concurrent test database management
 - **📊 Scales with complexity** - performance advantage increases with schema complexity
 - **🎯 PostgreSQL-specific** with connection string validation
-- **⚡ Multiple drivers** - supports both `database/sql` and `pgx` drivers
+- **⚡ Multiple drivers** - supports both `pq` and `pgx` drivers
 - **🧪 Flexible testing** support for various test scenarios
 - **📦 Testcontainers integration** for containerized testing
 - **🔧 Configurable** migration runners and connection providers
@@ -193,21 +193,6 @@ func TestUserRepositoryPgx(t *testing.T) {
 		t.Errorf("Expected 1 user, got %d", count)
 	}
 }
-
-// Test with custom database name.
-func TestWithCustomDBName(t *testing.T) {
-	ctx := context.Background()
-
-	testConn, testDBName, err := templateManager.CreateTestDatabase(ctx, "custom_test_db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer testConn.Close()
-	defer templateManager.DropTestDatabase(ctx, testDBName)
-
-	// testDBName will be "custom_test_db".
-	// Your test code here...
-}
 ```
 
 ### 2. Integration with `testcontainers-go`
@@ -335,39 +320,6 @@ func TestUserServiceWithContainer(t *testing.T) {
 		t.Errorf("Expected 1 user, got %d", len(users))
 	}
 }
-
-// Concurrent test example.
-func TestConcurrentOperations(t *testing.T) {
-	const numGoroutines = 10
-	ctx := context.Background()
-
-	// Create multiple test databases concurrently.
-	results := make(chan error, numGoroutines)
-
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
-			testDB, testDBName, err := templateManager.CreateTestDatabase(ctx)
-			if err != nil {
-				results <- err
-				return
-			}
-			defer testDB.Close()
-			defer templateManager.DropTestDatabase(ctx, testDBName)
-
-			// Simulate some database operations.
-			_, err = testDB.ExecContext(ctx, "INSERT INTO users (name) VALUES ($1)", 
-				fmt.Sprintf("User_%d", id))
-			results <- err
-		}(i)
-	}
-
-	// Wait for all goroutines.
-	for i := 0; i < numGoroutines; i++ {
-		if err := <-results; err != nil {
-			t.Fatal(err)
-		}
-	}
-}
 ```
 
 ## Advanced Cases
@@ -416,19 +368,6 @@ migrations/
 ├── 003_add_user_posts_relation.sql
 └── 004_add_indexes.sql
 ```
-
-## Configuration Options
-
-### Environment Variables
-
-```bash
-# Required for running tests - the library will panic if this is not set.
-export POSTGRES_CONNECTION_STRING="postgres://user:pass@localhost:5432/postgres?sslmode=disable"
-```
-
-**Note**: The `POSTGRES_CONNECTION_STRING` environment variable is **mandatory**
-when running tests. The library will panic during test initialization
-if this variable is not set.
 
 ## Thread Safety
 
@@ -484,6 +423,11 @@ Please see [CONTRIBUTORS.md](docs/CONTRIBUTORS.md) for the full list.
 
 Contributions are welcome! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for
 guidelines.
+
+## Security
+
+If you discover a security vulnerability, please report it responsibly.
+See [SECURITY.md](docs/SECURITY.md) for our security policy and reporting process.
 
 ## License
 
