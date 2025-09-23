@@ -58,6 +58,7 @@ func main() {
 		return fmt.Sprintf("postgres://user:pass@localhost/%s", dbName)
 	}
 	provider := pgdbtemplatepgx.NewConnectionProvider(connStringFunc)
+	defer provider.Close() // Close all connection pools.
 
 	// Create migration runner.
 	migrationRunner := pgdbtemplate.NewFileMigrationRunner(
@@ -114,10 +115,12 @@ import (
 )
 
 var templateManager *pgdbtemplate.TemplateManager
+var provider *pgdbtemplatepgx.ConnectionProvider
 
 func TestMain(m *testing.M) {
 	// Setup template manager once.
-	if err := setupPgxTemplateManager(); err != nil {
+	ctx := context.Background()
+	if err := setupPgxTemplateManager(ctx); err != nil {
 		log.Fatalf("failed to setup template manager: %v", err)
 	}
 
@@ -125,11 +128,13 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Cleanup.
-	templateManager.Cleanup(context.Background())
+	templateManager.Cleanup(ctx)
+	provider.Close()
+
 	os.Exit(code)
 }
 
-func setupPgxTemplateManager() error {
+func setupPgxTemplateManager(ctx context.Context) error {
 	baseConnString := "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
 
 	// Create pgx connection provider with connection pooling.
@@ -138,7 +143,7 @@ func setupPgxTemplateManager() error {
 	}
 	
 	// Configure connection pool settings using options.
-	provider := pgdbtemplatepgx.NewConnectionProvider(
+	provider = pgdbtemplatepgx.NewConnectionProvider(
 		connStringFunc,
 		pgdbtemplatepgx.WithMaxConns(10),
 		pgdbtemplatepgx.WithMinConns(2),
@@ -156,13 +161,14 @@ func setupPgxTemplateManager() error {
 		MigrationRunner:    migrationRunner,
 	}
 
+	var err error
 	templateManager, err = pgdbtemplate.NewTemplateManager(config)
 	if err != nil {
 		return fmt.Errorf("failed to create template manager: %w", err)
 	}
 
 	// Initialize template database with migrations.
-	if err := templateManager.Initialize(context.Background()); err != nil {
+	if err = templateManager.Initialize(ctx); err != nil {
 		return fmt.Errorf("failed to initialize template: %w", err)
 	}
 	return nil
@@ -232,16 +238,20 @@ func TestMain(m *testing.M) {
 	if err := setupPostgresContainer(ctx); err != nil {
 		log.Fatalf("failed to setup postgres container: %v", err)
 	}
-	defer pgContainer.Terminate(ctx)
 
 	// Setup template manager.
 	if err := setupTemplateManagerWithContainer(ctx); err != nil {
 		log.Fatalf("failed to setup template manager: %v", err)
 	}
-	defer templateManager.Cleanup(ctx)
 
 	// Run tests.
-	m.Run()
+	code := m.Run()
+
+	// Cleanup.
+	templateManager.Cleanup(ctx)
+	pgContainer.Terminate(ctx)
+
+	os.Exit(code)
 }
 
 func setupPostgresContainer(ctx context.Context) error {
