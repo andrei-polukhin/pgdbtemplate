@@ -444,6 +444,11 @@ guidelines.
 If you discover a security vulnerability, please report it responsibly.
 See [SECURITY.md](docs/SECURITY.md) for our security policy and reporting process.
 
+## Disclaimer
+
+This is a personal project developed in my own time.
+It is not affiliated with or endorsed by any company.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
