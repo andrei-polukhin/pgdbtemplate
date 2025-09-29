@@ -14,7 +14,7 @@ of the following individuals:
 
 - **Theo Higham** ([@theohigham](https://github.com/theohigham)) - Code reviews
   and feedback
-- **Yakup Turgut** ([@yakupt-canonical](https://github.com/yakupt-canonical)) -
+- **Yakup Turgut** ([@kullanici0606](https://github.com/kullanici0606)) -
   Code reviews and feedback
 - **Emre Aydin** ([@emre-aydin](https://github.com/emre-aydin)) - Code reviews
   and feedback
