@@ -338,7 +338,7 @@ func TestTemplateManagerCleanupErrorPaths(t *testing.T) {
 	err = tm.Cleanup(ctx)
 	c.Assert(err, qt.ErrorMatches, "(?s).*drop error.*drop error.*")
 
-	// Note: Using mock provider, no real databases created - cleanup not needed
+	// Note: Using mock provider, no real databases created - cleanup not needed.
 }
 
 // TestTemplateManagerDropTestDatabaseErrorPaths tests error handling in DropTestDatabase

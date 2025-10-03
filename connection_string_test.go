@@ -177,26 +177,22 @@ func TestReplaceDatabaseInConnectionStringErrorCases(t *testing.T) {
 		dbName  string
 
 		expected string
-	}{
-		{
-			name:     "malformed URL uses fallback",
-			connStr:  "postgres://user:pass@[invalid-ipv6:5432/postgres", // Invalid IPv6.
-			dbName:   "testdb",
-			expected: "postgres://user:pass@[invalid-ipv6:5432/testdb", // Fallback replacement.
-		},
-		{
-			name:     "DSN without dbname falls through to fallback",
-			connStr:  "host=localhost user=postgres port=5432", // No dbname.
-			dbName:   "testdb",
-			expected: "host=localhost user=postgres port=5432/testdb", // Fallback.
-		},
-		{
-			name:     "empty connection string",
-			connStr:  "",
-			dbName:   "testdb",
-			expected: "/testdb", // Fallback behavior.
-		},
-	}
+	}{{
+		name:     "malformed URL uses fallback",
+		connStr:  "postgres://user:pass@[invalid-ipv6:5432/postgres", // Invalid IPv6.
+		dbName:   "testdb",
+		expected: "postgres://user:pass@[invalid-ipv6:5432/testdb", // Fallback replacement.
+	}, {
+		name:     "DSN without dbname falls through to fallback",
+		connStr:  "host=localhost user=postgres port=5432", // No dbname.
+		dbName:   "testdb",
+		expected: "host=localhost user=postgres port=5432/testdb", // Fallback.
+	}, {
+		name:     "empty connection string",
+		connStr:  "",
+		dbName:   "testdb",
+		expected: "/testdb", // Fallback behavior.
+	}}
 
 	for _, test := range tests {
 		c.Run(test.name, func(c *qt.C) {

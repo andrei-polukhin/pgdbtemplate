@@ -34,7 +34,7 @@ func (m *sharedMockDatabaseConnection) ExecContext(ctx context.Context, query st
 			databases := m.provider.getDatabases()
 			if databases[dbName] {
 				mu.Unlock()
-				return nil, fmt.Errorf("database \"%s\" already exists", dbName)
+				return nil, fmt.Errorf("database %q already exists", dbName)
 			}
 			databases[dbName] = true
 			mu.Unlock()
@@ -43,10 +43,10 @@ func (m *sharedMockDatabaseConnection) ExecContext(ctx context.Context, query st
 		parts := strings.Fields(query)
 		var dbName string
 		if len(parts) >= 5 && parts[2] == "IF" && parts[3] == "EXISTS" {
-			// Handle "DROP DATABASE IF EXISTS dbname"
+			// Handle "DROP DATABASE IF EXISTS dbname".
 			dbName = strings.Trim(parts[4], `"`)
 		} else if len(parts) >= 3 {
-			// Handle "DROP DATABASE dbname"
+			// Handle "DROP DATABASE dbname".
 			dbName = strings.Trim(parts[2], `"`)
 		}
 		if dbName != "" {
@@ -56,9 +56,9 @@ func (m *sharedMockDatabaseConnection) ExecContext(ctx context.Context, query st
 			if databases[dbName] {
 				delete(databases, dbName)
 			} else if !(len(parts) >= 5 && parts[2] == "IF" && parts[3] == "EXISTS") {
-				// Only error if it's not an "IF EXISTS" query
+				// Only error if it's not an "IF EXISTS" query.
 				mu.Unlock()
-				return nil, fmt.Errorf("database \"%s\" does not exist", dbName)
+				return nil, fmt.Errorf("database %q does not exist", dbName)
 			}
 			mu.Unlock()
 		}
@@ -68,32 +68,6 @@ func (m *sharedMockDatabaseConnection) ExecContext(ctx context.Context, query st
 
 // QueryRowContext implements pgdbtemplate.DatabaseConnection.QueryRowContext.
 func (m *sharedMockDatabaseConnection) QueryRowContext(ctx context.Context, query string, args ...any) pgdbtemplate.Row {
-	if strings.Contains(query, "SELECT datname FROM pg_database WHERE NOT datistemplate") {
-		var dbs []any
-		mu := m.provider.getMutex()
-		mu.RLock()
-		databases := m.provider.getDatabases()
-		for db, exists := range databases {
-			if exists && db != "template0" && db != "template1" {
-				dbs = append(dbs, db)
-			}
-		}
-		mu.RUnlock()
-		return &sharedMockRow{data: dbs}
-	}
-	if strings.Contains(query, "SELECT datname FROM pg_database WHERE datistemplate") {
-		var dbs []any
-		mu := m.provider.getMutex()
-		mu.RLock()
-		databases := m.provider.getDatabases()
-		for db, exists := range databases {
-			if exists && (db == "template0" || db == "template1") {
-				dbs = append(dbs, db)
-			}
-		}
-		mu.RUnlock()
-		return &sharedMockRow{data: dbs}
-	}
 	if strings.Contains(query, "SELECT TRUE FROM pg_database WHERE datname") {
 		// Handle both parameterized and literal queries
 		if len(args) > 0 {
