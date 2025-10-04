@@ -14,7 +14,6 @@ template databases for lightning-fast test execution.
   scales to 500 databases, ~17% less memory usage
 - **🔒 Thread-safe** - concurrent test database management
 - **📊 Scales with complexity** - performance advantage increases with schema complexity
-- **🎯 PostgreSQL-specific** with connection string validation
 - **⚡ Multiple drivers** - supports both `pq` and `pgx` drivers
 - **🧪 Flexible testing** support for various test scenarios
 - **📦 Testcontainers integration** for containerized testing
