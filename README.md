@@ -37,6 +37,25 @@ Choose either one of these PostgreSQL drivers:
 - `github.com/andrei-polukhin/pgdbtemplate-pgx` (for `pgx/v5` with connection pooling)
 - `github.com/andrei-polukhin/pgdbtemplate-pq` (for `database/sql` with `lib/pq`)
 
+## Migration Library Support
+
+`pgdbtemplate` supports multiple migration libraries through dedicated adapters:
+
+- **[goose](https://github.com/andrei-polukhin/pgdbtemplate-goose)** - Popular migration tool with broad feature set
+- **[golang-migrate](https://github.com/andrei-polukhin/pgdbtemplate-golang-migrate)** - Widely-used CLI and library
+- **[Atlas](https://github.com/andrei-polukhin/pgdbtemplate-atlas)** - Modern declarative migration tool
+
+Or use the built-in file-based migration runner for simple SQL migrations.
+
+```bash
+# Choose your migration adapter
+go get github.com/andrei-polukhin/pgdbtemplate-goose
+# or
+go get github.com/andrei-polukhin/pgdbtemplate-golang-migrate
+# or
+go get github.com/andrei-polukhin/pgdbtemplate-atlas
+```
+
 ## Quick Start
 
 ```go
@@ -427,6 +446,17 @@ between tests.
 
 - PostgreSQL 9.5+ (for template database support)
 - Go 1.20+
+
+## Related Projects
+
+### Connection Providers
+- [pgdbtemplate-pq](https://github.com/andrei-polukhin/pgdbtemplate-pq) - `lib/pq` (`database/sql`) connection provider
+- [pgdbtemplate-pgx](https://github.com/andrei-polukhin/pgdbtemplate-pgx) - `pgx/v5` connection provider with pooling
+
+### Migration Adapters
+- [pgdbtemplate-goose](https://github.com/andrei-polukhin/pgdbtemplate-goose) - [goose](https://github.com/pressly/goose) migration adapter
+- [pgdbtemplate-golang-migrate](https://github.com/andrei-polukhin/pgdbtemplate-golang-migrate) - [golang-migrate](https://github.com/golang-migrate/migrate) adapter
+- [pgdbtemplate-atlas](https://github.com/andrei-polukhin/pgdbtemplate-atlas) - [Atlas](https://atlasgo.io/) migration adapter
 
 ## Contributors
 
