@@ -41,17 +41,19 @@ func NewFileMigrationRunner(paths []string, orderingFunc func([]string) []string
 func (r *FileMigrationRunner) RunMigrations(ctx context.Context, conn DatabaseConnection) error {
 	var allFiles []string
 
-	// Collect all SQL files from all paths.
+	// Collect and order files from each path separately.
 	for _, path := range r.migrationPaths {
 		files, err := r.collectSQLFiles(path)
 		if err != nil {
 			return fmt.Errorf("failed to collect files from %s: %w", path, err)
 		}
-		allFiles = append(allFiles, files...)
-	}
 
-	// Order files (function always set).
-	allFiles = r.orderingFunc(allFiles)
+		// Order files within this directory.
+		if len(files) > 0 {
+			files = r.orderingFunc(files)
+			allFiles = append(allFiles, files...)
+		}
+	}
 
 	// Execute each file.
 	for _, file := range allFiles {
