@@ -104,6 +104,61 @@ func loadMigrationsFromDir(dir string) []string {
 **Use cases**: Rollback support, conditional migrations, multi-schema setups,
 external migration sources.
 
+## Usage in multiple packages
+
+As described in [the `go test` documentation][go-test-documentation],
+running `go test ./...` causes the execution of one test binary per package.
+By default, the test binaries are run in parallel, which can lead to issues when
+multiple test binaries attempt to create a template database on the same
+PostgreSQL server.
+
+When using testcontainers, this is avoided by default, since each test binary
+creates its own isolated PostgreSQL container. However, it also means that each
+test binary has to create its own template database, which can be
+resource-intensive depending on the migration runner, and the number of
+migrations.
+
+This can be solved by making sure containers are reused across test binaries,
+and that there isn't an attempt to create the template database in each test
+binary.
+
+[go-test-documentation]: https://pkg.go.dev/cmd/go#hdr-Test_packages
+
+### Reusing Containers Across Test Binaries
+
+To reuse containers across test binaries, you can set the use an experimental
+testcontainer feature called ["reusable container"][reusable-container-docs]:
+
+```go
+pg, err := testcontainers.Run(ctx, "postgres:18",
+	testcontainers.WithReuseByName("postgres-myproject"),
+	// other options...
+)
+```
+
+[reusable-container-docs]: https://golang.testcontainers.org/features/creating_container/#reusable-container
+
+### Creating the Template Database Only Once
+
+To create the template database only once accross multiple test binaries, you
+need to use something outside the memory of the test binaries, such as a file or
+an environment variable.
+
+One approach is to `gofrs/flock` to create a file lock around the template database
+creation logic. Once a test binary has created the template database, the
+library is able to notice that and skip the creation in subsequent test binaries.
+All you need to do is prevent a race condition around the initial creation.
+
+```go
+fileLock := flock.New("/tmp/myproject_template_db.lock")
+err := fileLock.Lock()
+require.NoError(t, err)
+err := setupTemplateManager(ctx)
+require.NoError(t, err)
+err = fileLock.Unlock()
+require.NoError(t, err)
+```
+
 ## Environment-Specific Providers
 
 ```go
