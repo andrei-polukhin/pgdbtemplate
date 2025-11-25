@@ -217,13 +217,16 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 //
 // The caller is expected to call Initialize() before using this method.
 func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) error {
-	// Connect to template database for DROP operations.
-	// This is preferred to follow the least privilege principle.
-	templateConn, err := tm.provider.Connect(ctx, tm.templateName)
+	// Connect to admin database for DROP operations.
+	// Even though we could connect to the template database,
+	// we cannot do this as the user can call CreateTestDatabase
+	// at the same time and creating test databases from template
+	// requires no active connections to the template.
+	adminConn, err := tm.provider.Connect(ctx, tm.adminDBName)
 	if err != nil {
-		return fmt.Errorf("failed to connect to template database: %w", err)
+		return fmt.Errorf("failed to connect to admin database: %w", err)
 	}
-	defer templateConn.Close()
+	defer adminConn.Close()
 
 	// Terminate active connections to the database.
 	terminateQuery := `
@@ -231,14 +234,14 @@ func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) 
 	   FROM pg_stat_activity 
 	   WHERE datname = $1 AND pid <> pg_backend_pid()
 	`
-	_, err = templateConn.ExecContext(ctx, terminateQuery, dbName)
+	_, err = adminConn.ExecContext(ctx, terminateQuery, dbName)
 	if err != nil {
 		return fmt.Errorf("failed to terminate connections to database %q: %w", dbName, err)
 	}
 
 	// Drop the database.
 	dropQuery := fmt.Sprintf("DROP DATABASE %s", formatters.QuoteIdentifier(dbName))
-	if _, err := templateConn.ExecContext(ctx, dropQuery); err != nil {
+	if _, err := adminConn.ExecContext(ctx, dropQuery); err != nil {
 		return fmt.Errorf("failed to drop database %s: %w", dbName, err)
 	}
 
