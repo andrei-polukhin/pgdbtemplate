@@ -36,6 +36,7 @@ Choose either one of these PostgreSQL drivers:
 
 - `github.com/andrei-polukhin/pgdbtemplate-pgx` (for `pgx/v5` with connection pooling)
 - `github.com/andrei-polukhin/pgdbtemplate-pq` (for `database/sql` with `lib/pq`)
+- `github.com/andrei-polukhin/pgdbtemplate-pgx-v4` (for `pgx/v4` with connection pooling)
 
 ## Migration Library Support
 
@@ -452,6 +453,7 @@ between tests.
 ### Connection Providers
 - [pgdbtemplate-pq](https://github.com/andrei-polukhin/pgdbtemplate-pq) - `lib/pq` (`database/sql`) connection provider
 - [pgdbtemplate-pgx](https://github.com/andrei-polukhin/pgdbtemplate-pgx) - `pgx/v5` connection provider with pooling
+- [pgdbtemplate-pgx-v4](https://github.com/andrei-polukhin/pgdbtemplate-pgx-v4) - `pgx/v4` connection provider with pooling
 
 ### Migration Adapters
 - [pgdbtemplate-goose](https://github.com/andrei-polukhin/pgdbtemplate-goose) - [goose](https://github.com/pressly/goose) migration adapter
