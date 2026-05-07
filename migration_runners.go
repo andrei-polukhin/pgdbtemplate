@@ -45,7 +45,7 @@ func (r *FileMigrationRunner) RunMigrations(ctx context.Context, conn DatabaseCo
 	for _, path := range r.migrationPaths {
 		files, err := r.collectSQLFiles(path)
 		if err != nil {
-			return fmt.Errorf("failed to collect files from %s: %w", path, err)
+			return fmt.Errorf("failed to collect files from %q: %w", path, err)
 		}
 
 		// Order files within this directory.
@@ -58,7 +58,7 @@ func (r *FileMigrationRunner) RunMigrations(ctx context.Context, conn DatabaseCo
 	// Execute each file.
 	for _, file := range allFiles {
 		if err := r.executeFile(ctx, conn, file); err != nil {
-			return fmt.Errorf("failed to execute migration %s: %w", file, err)
+			return fmt.Errorf("failed to execute migration %q: %w", file, err)
 		}
 	}
 	return nil

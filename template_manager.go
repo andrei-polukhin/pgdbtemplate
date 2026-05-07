@@ -177,7 +177,7 @@ func (tm *TemplateManager) CreateTestDatabase(ctx context.Context, testDBName ..
 	query := fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s",
 		formatters.QuoteIdentifier(dbName), formatters.QuoteIdentifier(tm.templateName))
 	if _, err := adminConn.ExecContext(ctx, query); err != nil {
-		return nil, "", fmt.Errorf("failed to create test database %s: %w", dbName, err)
+		return nil, "", fmt.Errorf("failed to create test database %q: %w", dbName, err)
 	}
 
 	// Drop the test database if any further steps fail.
@@ -229,20 +229,14 @@ func (tm *TemplateManager) DropTestDatabase(ctx context.Context, dbName string) 
 	defer adminConn.Close()
 
 	// Terminate active connections to the database.
-	terminateQuery := `
-	   SELECT pg_terminate_backend(pid) 
-	   FROM pg_stat_activity 
-	   WHERE datname = $1 AND pid <> pg_backend_pid()
-	`
-	_, err = adminConn.ExecContext(ctx, terminateQuery, dbName)
-	if err != nil {
+	if err := tm.batchTerminateConnections(ctx, adminConn, []string{dbName}); err != nil {
 		return fmt.Errorf("failed to terminate connections to database %q: %w", dbName, err)
 	}
 
 	// Drop the database.
 	dropQuery := fmt.Sprintf("DROP DATABASE %s", formatters.QuoteIdentifier(dbName))
 	if _, err := adminConn.ExecContext(ctx, dropQuery); err != nil {
-		return fmt.Errorf("failed to drop database %s: %w", dbName, err)
+		return fmt.Errorf("failed to drop database %q: %w", dbName, err)
 	}
 
 	// Remove from tracking map if it was tracked.
